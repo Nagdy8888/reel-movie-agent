@@ -22,7 +22,9 @@ def build_graph(
 ) -> "CompiledStateGraph":
     """Build and compile the GraphRAG agent.
 
-    Flow: START -> router -> (tools -> router)* -> generate -> END.
+    Flow: START -> router -> (tools ->)? generate -> END.
+    The router performs a single retrieval hop (or none); `generate` is the only
+    node that produces user-facing text, and it is grounded + fail-closed.
     Compiled WITHOUT a checkpointer by default so LangGraph Studio can supply
     its own; the backend (Phase 5) passes Postgres checkpointer + store.
     """
@@ -45,7 +47,7 @@ def build_graph(
         tools_condition,
         {"tools": "tools", END: "generate"},
     )
-    builder.add_edge("tools", "router")
+    builder.add_edge("tools", "generate")
     builder.add_edge("generate", END)
     return builder.compile(checkpointer=checkpointer, store=store)
 

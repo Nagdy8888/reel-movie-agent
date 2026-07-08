@@ -13,16 +13,22 @@ from agents.tools import TOOLS
 
 
 def router(state: AgentState) -> RouterUpdate:
-    """Decide whether to call a retrieval tool or answer.
+    """Force a retrieval tool call for the question (never answers directly).
 
     Reads from state:  messages
-    Writes to state:   messages (an AI message, possibly with tool calls)
-    Side effects:      one OpenAI call (tools bound)
+    Writes to state:   messages (an AI message that only carries tool calls)
+    Side effects:      one OpenAI call (tools bound, tool_choice forced)
     Failure mode:      RetryPolicy retries; otherwise run fails cleanly.
     """
-    model = get_chat_model().bind_tools(TOOLS)
+    # tool_choice="any" forces the model to emit a tool call and NOT free-form
+    # prose, so ungrounded model knowledge can never be streamed to the user.
+    # Safe from infinite loops because retrieval is a single hop (tools ->
+    # generate), so the router runs only once per turn.
+    model = get_chat_model().bind_tools(TOOLS, tool_choice="any")
     system = SystemMessage(content=ROUTER_SYSTEM_V1)
     reply = model.invoke([system, *state["messages"]])
+    # Belt-and-suspenders: drop any content the model may still attach.
+    reply.content = ""
     return {"messages": [reply]}
 
 

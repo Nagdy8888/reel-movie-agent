@@ -23,6 +23,7 @@ def get_chat_model() -> ChatOpenAI:
         api_key=SecretStr(settings.openai_api_key),
         timeout=settings.llm_timeout_seconds,
         max_completion_tokens=settings.llm_max_tokens,
+        temperature=0,
     )
 
 

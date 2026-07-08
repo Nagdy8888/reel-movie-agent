@@ -1,0 +1,11 @@
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: apps/agents/Dockerfile
+    env_file: [.env]
+    ports:
+      - "2024:2024"
+    volumes:
+      - ./apps/agents:/app/apps/agents   # live-reload source
+      - ./.env:/app/.env:ro              # so langgraph.json "../../.env" resolves in-container

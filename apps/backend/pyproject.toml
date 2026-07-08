@@ -1,0 +1,23 @@
+[project]
+name = "backend"
+version = "0.0.0"
+description = "FastAPI HTTP layer for the Reel agent."
+requires-python = ">=3.11"
+dependencies = [
+  "agents",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2",
+  "pydantic-settings>=2",
+  "pyjwt[crypto]>=2.9",
+  "httpx>=0.27",
+  "slowapi>=0.1.9",
+  "python-json-logger>=2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api"]

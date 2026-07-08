@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Reel AI - Chat</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Playfair+Display:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#39342d",
+                        "surface-container-highest": "#39342d",
+                        "on-surface": "#ebe1d6",
+                        "primary-fixed": "#ffdeaa",
+                        "on-tertiary": "#00315d",
+                        "tertiary-fixed-dim": "#a4c9ff",
+                        "surface-container-low": "#1f1b14",
+                        "surface-container-high": "#2e2922",
+                        "tertiary-container": "#94bffc",
+                        "on-secondary-container": "#ff9f93",
+                        "on-tertiary-container": "#1b4d83",
+                        "on-primary-fixed-variant": "#5f4100",
+                        "on-tertiary-fixed": "#001c39",
+                        "surface": "#17130d",
+                        "surface-container": "#231f18",
+                        "surface-tint": "#f3be60",
+                        "on-primary": "#422c00",
+                        "secondary-fixed": "#ffdad5",
+                        "tertiary": "#c3daff",
+                        "on-secondary-fixed-variant": "#891d18",
+                        "background": "#17130d",
+                        "primary": "#ffd185",
+                        "error": "#ffb4ab",
+                        "inverse-primary": "#7d5700",
+                        "on-error": "#690005",
+                        "secondary-container": "#8c1f1a",
+                        "inverse-on-surface": "#353028",
+                        "on-surface-variant": "#d3c4b1",
+                        "inverse-surface": "#ebe1d6",
+                        "error-container": "#93000a",
+                        "on-primary-fixed": "#271900",
+                        "secondary-fixed-dim": "#ffb4aa",
+                        "on-error-container": "#ffdad6",
+                        "secondary": "#ffb4aa",
+                        "surface-bright": "#3e3831",
+                        "outline-variant": "#4f4537",
+                        "surface-dim": "#17130d",
+                        "on-secondary": "#680105",
+                        "surface-container-lowest": "#110e08",
+                        "on-tertiary-fixed-variant": "#13487d",
+                        "primary-container": "#e8b457",
+                        "on-primary-container": "#654600",
+                        "outline": "#9b8f7d",
+                        "primary-fixed-dim": "#f3be60",
+                        "on-background": "#ebe1d6",
+                        "tertiary-fixed": "#d4e3ff",
+                        "on-secondary-fixed": "#410002"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "lg": "24px",
+                        "gutter": "24px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "48px",
+                        "xl": "40px",
+                        "unit": "4px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "display-md": ["Playfair Display"],
+                        "headline-lg": ["Playfair Display"],
+                        "body-lg": ["Inter"],
+                        "headline-lg-mobile": ["Playfair Display"],
+                        "display-lg": ["Playfair Display"],
+                        "title-md": ["Inter"],
+                        "label-caps": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["14px", {"lineHeight": "1.6", "letterSpacing": "0.01em", "fontWeight": "400"}],
+                        "display-md": ["36px", {"lineHeight": "1.2", "letterSpacing": "0.02em", "fontWeight": "600"}],
+                        "headline-lg": ["28px", {"lineHeight": "1.3", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0.01em", "fontWeight": "400"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "1.3", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "0.02em", "fontWeight": "700"}],
+                        "title-md": ["18px", {"lineHeight": "1.5", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.1em", "fontWeight": "700"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-panel {
+            background: rgba(28, 28, 34, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid #2A2A33;
+        }
+        .text-glow {
+            text-shadow: 0 0 10px rgba(232, 180, 87, 0.3);
+        }
+        .thin-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .thin-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .thin-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(232, 180, 87, 0.2);
+            border-radius: 4px;
+        }
+        .thinking-dot {
+            animation: flicker 1.5s infinite;
+        }
+        .thinking-dot:nth-child(2) { animation-delay: 0.5s; }
+        .thinking-dot:nth-child(3) { animation-delay: 1s; }
+        @keyframes flicker {
+            0%, 100% { opacity: 0.2; }
+            50% { opacity: 1; text-shadow: 0 0 8px rgba(232, 180, 87, 0.8); }
+        }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface h-screen overflow-hidden flex font-body-lg">
+<!-- LEFT SIDEBAR -->
+<aside class="w-[260px] h-full bg-[#0E0E11] border-r border-[#2A2A33] flex flex-col flex-shrink-0">
+<div class="p-lg flex items-center justify-between">
+<span class="font-display-md text-display-md text-primary-container text-glow tracking-tight">Reel</span>
+<button class="text-on-surface-variant hover:text-primary-container transition-colors">
+<span class="material-symbols-outlined">menu</span>
+</button>
+</div>
+<div class="px-md mb-md">
+<button class="w-full bg-primary-container text-on-primary-container font-title-md text-title-md py-sm rounded-lg flex items-center justify-center gap-sm hover:brightness-110 transition-all duration-300">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                New Discovery
+            </button>
+</div>
+<div class="flex-1 overflow-y-auto thin-scrollbar px-md">
+<div class="mb-lg mt-md">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-sm px-sm">Today</h3>
+<ul class="space-y-xs">
+<li>
+<button class="w-full text-left px-sm py-sm rounded-md bg-surface-container/50 text-primary-container border border-[#2A2A33] flex items-center gap-sm">
+<span class="material-symbols-outlined text-[16px]">chat_bubble_outline</span>
+<span class="truncate font-body-sm text-body-sm">Blade Runner 2049 Discussion</span>
+</button>
+</li>
+<li>
+<button class="w-full text-left px-sm py-sm rounded-md hover:bg-surface-container/30 text-on-surface-variant transition-colors flex items-center gap-sm">
+<span class="material-symbols-outlined text-[16px]">chat_bubble_outline</span>
+<span class="truncate font-body-sm text-body-sm">A24 Horror Gems</span>
+</button>
+</li>
+</ul>
+</div>
+<div class="mb-lg">
+<h3 class="font-label-caps text-label-caps text-on-surface-variant mb-sm px-sm">Previous 7 Days</h3>
+<ul class="space-y-xs">
+<li>
+<button class="w-full text-left px-sm py-sm rounded-md hover:bg-surface-container/30 text-on-surface-variant transition-colors flex items-center gap-sm">
+<span class="material-symbols-outlined text-[16px]">chat_bubble_outline</span>
+<span class="truncate font-body-sm text-body-sm">Neo-Noir Tropes</span>
+</button>
+</li>
+<li>
+<button class="w-full text-left px-sm py-sm rounded-md hover:bg-surface-container/30 text-on-surface-variant transition-colors flex items-center gap-sm">
+<span class="material-symbols-outlined text-[16px]">chat_bubble_outline</span>
+<span class="truncate font-body-sm text-body-sm">Directors similar to Fincher</span>
+</button>
+</li>
+</ul>
+</div>
+</div>
+<div class="p-md border-t border-[#2A2A33] mt-auto">
+<button class="flex items-center gap-md w-full hover:bg-surface-container/30 p-sm rounded-lg transition-colors">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center overflow-hidden border border-[#2A2A33]">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A cinematic close-up of a sophisticated user avatar placeholder, featuring a subtle, moody, high-end studio lighting setup. The aesthetic is dark, premium, and minimal, reflecting the quiet luxury of an exclusive film screening room. Deep blacks and a hint of warm gold light define the edges." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDtqU_ROMjyMcp9b1lLKruuWIxJ1tUAu3BpgIQSihTt2YJ0yEtbj3teKJ5kjqEx75H0vi-UHJ-z4radVSPMh8giFBd4KrfhsQcE7CREoUAw6Qi2VdcenSaPhmumHuTV-Tab2Whwzj8abtRZYtLhvs3PQmkGH5kz9dONb4Z06ujuWC0Yd99JFaupCyYrRzkqA5D_h_fgrQ6BKbgnLmvBPU67IjSNQP7Q2NdOd_9DU-fL2NcrmOQfMzxq"/>
+</div>
+<div class="flex-1 text-left">
+<div class="font-title-md text-body-sm">Cinephile</div>
+<div class="font-body-sm text-[12px] text-on-surface-variant">Settings</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">settings</span>
+</button>
+</div>
+</aside>
+<!-- CENTER PANE -->
+<main class="flex-1 flex flex-col min-w-0 bg-background relative">
+<!-- Center Header -->
+<header class="h-[64px] border-b border-[#2A2A33] flex items-center justify-between px-lg glass-panel z-10 absolute top-0 w-full">
+<h1 class="font-headline-lg text-headline-lg text-on-surface truncate pr-md">Blade Runner 2049 Discussion</h1>
+<div class="flex items-center gap-2 px-3 py-1 rounded-full border border-primary-container/30 bg-primary-container/10">
+<span class="material-symbols-outlined text-[14px] text-primary-container">psychology</span>
+<span class="font-label-caps text-label-caps text-primary-container">GPT-4 Movie Graph</span>
+</div>
+</header>
+<!-- Chat Thread -->
+<div class="flex-1 overflow-y-auto thin-scrollbar pt-[88px] pb-[160px] px-margin-desktop flex flex-col gap-xl max-w-[900px] mx-auto w-full">
+<!-- User Message -->
+<div class="flex justify-end w-full">
+<div class="max-w-[80%] bg-[#1C1C22] p-md rounded-xl rounded-tr-sm border border-[#2A2A33] relative overflow-hidden">
+<div class="absolute inset-0 bg-primary-container opacity-5 mix-blend-overlay"></div>
+<p class="font-body-lg text-body-lg relative z-10">Tell me about the themes in Blade Runner 2049.</p>
+</div>
+</div>
+<!-- Assistant Answer -->
+<div class="flex justify-start w-full gap-md">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center flex-shrink-0 border border-primary-container/30 text-primary-container">
+<span class="material-symbols-outlined text-[18px]">movie_filter</span>
+</div>
+<div class="max-w-[85%]">
+<div class="bg-[#1C1C22] p-lg rounded-xl rounded-tl-sm border border-[#2A2A33] shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+<div class="font-display-md text-[20px] text-on-surface leading-relaxed mb-md">
+<p class="mb-sm">At its core, Denis Villeneuve's <em>Blade Runner 2049</em> explores the profound tragedy of memory and the isolating nature of synthetic existence.</p>
+<p>The film uses K's journey to interrogate what makes us human. When an AI believes it has a real past, the emotional weight is indistinguishable from human experience, challenging the very definition of a 'soul' in a manufactured world.</p>
+</div>
+<!-- Citation Chips -->
+<div class="flex flex-wrap gap-sm mt-lg pt-md border-t border-[#2A2A33]">
+<button class="px-sm py-1 rounded-full bg-surface-container/50 border border-[#2A2A33] text-primary-container font-label-caps text-[11px] flex items-center gap-1 hover:bg-surface-variant transition-colors">
+<span>①</span>
+<span>Blade Runner 2049 (2017)</span>
+</button>
+<button class="px-sm py-1 rounded-full bg-surface-container/50 border border-[#2A2A33] text-primary-container font-label-caps text-[11px] flex items-center gap-1 hover:bg-surface-variant transition-colors">
+<span>②</span>
+<span>Denis Villeneuve</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Loading State -->
+<div class="flex justify-start w-full gap-md opacity-70">
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center flex-shrink-0 border border-[#2A2A33] text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">movie_filter</span>
+</div>
+<div class="bg-[#1C1C22] px-md py-sm rounded-xl rounded-tl-sm border border-[#2A2A33] flex items-center gap-md">
+<span class="font-body-sm text-body-sm text-on-surface-variant italic">Reel is searching the graph...</span>
+<div class="flex gap-1 text-primary-container">
+<span class="thinking-dot text-[24px] leading-none">•</span>
+<span class="thinking-dot text-[24px] leading-none">•</span>
+<span class="thinking-dot text-[24px] leading-none">•</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Chat Input Area -->
+<div class="absolute bottom-0 w-full bg-gradient-to-t from-background via-background to-transparent pt-xl pb-lg px-margin-desktop z-20">
+<div class="max-w-[900px] mx-auto">
+<!-- Suggestion Chips -->
+<div class="flex gap-sm mb-md overflow-x-auto thin-scrollbar pb-1">
+<button class="whitespace-nowrap px-md py-sm rounded-full border border-[#2A2A33] bg-[#1C1C22]/80 text-on-surface-variant font-body-sm text-body-sm hover:border-primary-container hover:text-primary-container transition-colors backdrop-blur-md">
+                        Cast of Inception
+                    </button>
+<button class="whitespace-nowrap px-md py-sm rounded-full border border-[#2A2A33] bg-[#1C1C22]/80 text-on-surface-variant font-body-sm text-body-sm hover:border-primary-container hover:text-primary-container transition-colors backdrop-blur-md">
+                        Sci-fi like Interstellar
+                    </button>
+</div>
+<!-- Input Box -->
+<div class="relative flex items-end bg-[#0E0E11] rounded-xl border border-[#2A2A33] focus-within:border-primary-container focus-within:shadow-[0_0_8px_rgba(232,180,87,0.2)] transition-all duration-300">
+<textarea class="w-full bg-transparent border-none text-on-surface font-body-lg text-body-lg p-md pr-[60px] resize-none focus:ring-0 min-h-[56px] max-h-[200px] thin-scrollbar" placeholder="Ask about films, directors, or thematic connections..." rows="1"></textarea>
+<button class="absolute right-sm bottom-sm w-10 h-10 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center hover:brightness-110 transition-all flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">arrow_upward</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<!-- RIGHT PANE (Sources & Graph) -->
+<aside class="w-[340px] h-full bg-[#110E08] border-l border-[#2A2A33] flex flex-col flex-shrink-0 relative z-30">
+<!-- Tabs Header -->
+<div class="flex border-b border-[#2A2A33] px-md pt-lg">
+<button class="flex-1 pb-sm font-title-md text-title-md text-primary-container border-b-2 border-primary-container text-center">
+                Sources
+            </button>
+<button class="flex-1 pb-sm font-title-md text-title-md text-on-surface-variant hover:text-on-surface transition-colors text-center">
+                Graph
+            </button>
+</div>
+<!-- Tab Content: Sources -->
+<div class="flex-1 overflow-y-auto thin-scrollbar p-md space-y-md">
+<!-- Source Card 1 -->
+<div class="bg-[#1C1C22] border border-[#2A2A33] rounded-lg overflow-hidden group hover:border-primary-container/50 transition-colors">
+<div class="h-32 relative w-full overflow-hidden">
+<div class="bg-cover bg-center w-full h-full transform group-hover:scale-105 transition-transform duration-700" data-alt="A cinematic, highly detailed movie poster style image for a neo-noir sci-fi film. Moody lighting, neon reflections in rain-slicked streets, deep shadows, and an atmospheric orange smog. The aesthetic is extremely premium, echoing high-end editorial layouts and prestige cinema. Gloomy yet vibrant colors." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDk0LPXOnqgsdV63SR3N6D92jyNmoJed3k7wh9lFD6CnuwukfbDqVy2N5rSSYuuygffNIGj7Slz31DUnpAHyTyiyw6D6NukzNGNu7yKD9foAM8Ek66bZPxXrFtqWDns8PDS_hdDCQmLJqqZJlYl9SBzSTsbbYJzCH16vVyfyv5QUaar7Bcq2OdlJxDKMRWh-iMwyYlt6iyrpHeCsyfeuJ0Erbmv7KJ9GYvdbj811D5vI7-1Bc0ECiRw')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-[#1C1C22] to-transparent"></div>
+<div class="absolute bottom-sm left-sm right-sm flex justify-between items-end">
+<span class="font-display-md text-[18px] text-on-surface text-glow">Blade Runner 2049</span>
+<span class="font-body-sm text-[12px] text-on-surface-variant">2017</span>
+</div>
+</div>
+<div class="p-sm flex flex-wrap gap-xs">
+<span class="px-2 py-0.5 rounded bg-surface-container border border-[#2A2A33] text-primary-container font-label-caps text-[10px]">Movie</span>
+<span class="px-2 py-0.5 rounded bg-surface-container border border-[#2A2A33] text-on-surface-variant font-label-caps text-[10px]">Sci-Fi</span>
+</div>
+</div>
+<!-- Source Card 2 -->
+<div class="bg-[#1C1C22] border border-[#2A2A33] rounded-lg overflow-hidden group hover:border-primary-container/50 transition-colors">
+<div class="h-24 relative w-full overflow-hidden">
+<div class="bg-cover bg-center w-full h-full transform group-hover:scale-105 transition-transform duration-700 opacity-60 grayscale group-hover:grayscale-0" data-alt="A dramatic black and white cinematic portrait of a director on set. High contrast, sharp focus, deep blacks, and a subtle film grain texture. The lighting is low-key, highlighting facial contours and conveying a sense of intense artistic focus. Premium editorial photography style." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCobgx-EOQBgQPm_Mna8bxtBM5FubslmnADHFk8DBLqDVEYzawaIsduDwFwnUjMgOy7LwBLmvfXHomzb8_YKPrBv1wM0lpuhLUuJGa30SdRdb9Pb84EVI6Urjc2vL1s-iHM7IbC2HFfRuqyjQvVpDwpHQOk63p2kcfwsap470T25tYbnE7QKO9lOpPG4-SzG4yCMvRgL89otcKzpkq-mVsR_N_T3QQS3HD4sMqxH9fhvbAek58_6OBz')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-[#1C1C22] to-transparent"></div>
+<div class="absolute bottom-sm left-sm">
+<span class="font-display-md text-[16px] text-on-surface">Denis Villeneuve</span>
+</div>
+</div>
+<div class="p-sm flex flex-wrap gap-xs">
+<span class="px-2 py-0.5 rounded bg-surface-container border border-[#2A2A33] text-on-surface-variant font-label-caps text-[10px]">Person</span>
+<span class="px-2 py-0.5 rounded bg-surface-container border border-[#2A2A33] text-on-surface-variant font-label-caps text-[10px]">Director</span>
+</div>
+</div>
+</div>
+<!-- Graph Tab Mockup (Hidden by default in this static view, but structurally present) -->
+<!-- 
+        <div class="flex-1 relative bg-[#0E0E11] overflow-hidden">
+            <div class="absolute inset-0 flex items-center justify-center opacity-50">
+                <span class="material-symbols-outlined text-primary-container text-[48px] animate-pulse">hub</span>
+            </div>
+        </div> 
+        -->
+</aside>
+</body></html>

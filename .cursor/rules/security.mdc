@@ -1,0 +1,36 @@
+---
+description: Security guardrails - read-only Cypher, secrets, LLM limits, CORS, env
+alwaysApply: true
+---
+
+# Security
+
+## Read-only Cypher (critical for GraphRAG)
+
+Text2Cypher lets the LLM generate Cypher from user text. Never trust it blindly:
+
+- Connect the agent with a **dedicated read-only Neo4j role/user**.
+- Run generated queries inside `session.execute_read(...)`.
+- Reject any query containing write clauses before execution:
+
+```python
+WRITE = re.compile(r"\b(CREATE|MERGE|DELETE|SET|REMOVE|DROP|LOAD\s+CSV|CALL\s+\{)\b", re.I)
+if WRITE.search(query):
+    raise UnsafeCypherError(query)
+```
+
+## Secrets & auth
+
+- Compare secrets with `hmac.compare_digest`, never `==`.
+- Every non-public route requires an auth dependency (Supabase JWT). No unauthenticated data/LLM endpoints.
+- Never log secrets or PII; sanitize user-derived strings before logging.
+
+## LLM calls
+
+- Always pass `timeout=` and `max_tokens=` (read from settings). No unbounded calls.
+
+## Transport & config
+
+- CORS: explicit origin allowlist. Never `allow_origins=["*"]` with `allow_credentials=True`. Fail fast if origins unset in prod.
+- Validate required env vars at startup; refuse to boot on missing/placeholder values.
+- Global exception handler returns a generic body (`{"detail": "Internal server error"}`) + a `request_id`; never return `str(exc)`.

@@ -1,0 +1,27 @@
+---
+description: Monorepo structure and where each file belongs (uv workspace under apps/)
+alwaysApply: true
+---
+
+# Project Structure
+
+uv-workspace monorepo. Everything lives under `apps/`:
+
+- **`apps/agents`** — the LangGraph deployable (the AI agent). Owns `apps/agents/langgraph.json` pointing at `src/agents/graph.py:graph`. Runnable with `langgraph dev` for Studio. Contains the graph, nodes, tools, prompts, `settings.py`, and `src/ingestion/` (Neo4j load + vector index).
+- **`apps/backend`** — the FastAPI HTTP layer. Declares `agents` as a workspace dependency and imports the compiled graph directly. Contains `src/api/` (main, middleware, deps, auth, schemas, settings, routes/).
+- **`apps/frontend`** — Next.js App Router app (ported from the Stitch export).
+
+Root holds `pyproject.toml` (`[tool.uv.workspace] members = ["apps/agents", "apps/backend"]`), `uv.lock`, `docker-compose.yml`, `docs/`, `.github/`, `.pre-commit-config.yaml`.
+
+## Placement rules
+
+- Graph/nodes/tools/prompts/ingestion → `apps/agents/src/`. Never put HTTP/FastAPI code here.
+- Routes/deps/auth/schemas/middleware → `apps/backend/src/api/`. Never put graph logic here — import it from `agents`.
+- Tests → the owning app's `tests/` dir.
+- Setup guides → `docs/setup/`; architecture → `docs/` (C4).
+
+## Forbidden
+
+- No "god files": split transport, business logic, and persistence.
+- No cross-app leakage: `agents` must not import from `backend`/`frontend`; `backend` talks to `agents` only through its public graph/package API.
+- No new top-level app dirs outside `apps/`.

@@ -1,0 +1,47 @@
+---
+description: Mandatory docstrings, field descriptions, and keeping docs in sync
+alwaysApply: true
+---
+
+# Documentation
+
+## Docstrings are mandatory
+
+Every module, class, function, and method has a docstring (Google convention). This is enforced by ruff pydocstyle (`D` rules) — undocumented code fails lint. Do not disable `D` rules to bypass; write the docstring.
+
+```python
+def escape_or_reject_cypher(query: str) -> str:
+    """Return the query if read-only, else raise.
+
+    Args:
+        query: Candidate Cypher produced by the LLM.
+
+    Returns:
+        The validated read-only query.
+
+    Raises:
+        UnsafeCypherError: If the query contains write clauses.
+    """
+```
+
+## LangGraph node contract docstring
+
+Every node additionally documents its state contract:
+
+```python
+"""One-line purpose.
+
+Reads from state:  <keys>
+Writes to state:   <keys>
+Side effects:      <none | external API call | DB read>
+Failure mode:      <what is returned on exception>
+"""
+```
+
+## Field descriptions
+
+Every Pydantic model field and `BaseSettings` field has `Field(description=...)`. This powers OpenAPI, env docs, and LLM tool schemas for free.
+
+## Keep docs in sync
+
+When behavior changes, update the relevant `docs/` (C4) page and any affected `docs/setup/*` guide in the same change. Comments explain WHY, not WHAT.

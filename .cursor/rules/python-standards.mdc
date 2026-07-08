@@ -1,0 +1,43 @@
+---
+description: Python code standards for the agents and backend apps
+globs: apps/agents/**/*.py,apps/backend/**/*.py
+alwaysApply: false
+---
+
+# Python Standards
+
+## Dependency injection & config
+
+- Inject dependencies via FastAPI `Depends` (backend) or explicit constructor args (agents). No lazy `import` inside function bodies to fetch services.
+- Exactly one `Settings(BaseSettings)` per app. No scattered `os.getenv` calls in business logic — read from the settings object.
+
+## Clients: cache and pool
+
+Never construct an LLM client, Neo4j driver, or DB connection per call/request:
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def get_llm() -> ChatOpenAI:
+    """Return the shared chat model (timeout + max_tokens set)."""
+    return ChatOpenAI(model=settings.model, timeout=30, max_tokens=1024)
+```
+
+Use a pooled Neo4j driver and `AsyncConnectionPool` for Postgres.
+
+## Async correctness
+
+- `await asyncio.sleep(...)` — never `time.sleep` in async paths.
+- `asyncio.Lock` for async critical sections — never `threading.Lock` held across `await`.
+- Fan-out with `asyncio.gather` + a `Semaphore` to cap concurrency.
+
+## Retries
+
+Use `tenacity` with exponential backoff + jitter; honor `Retry-After` where available. One shared policy, reused.
+
+## Typing & style
+
+- Use `X | None`, not `Optional[X]` (ruff `UP007`).
+- Type hints on all public function signatures.
+- No god files: keep transport, business logic, and persistence in separate modules.

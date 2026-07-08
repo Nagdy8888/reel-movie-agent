@@ -1,0 +1,44 @@
+---
+description: LangGraph agent conventions - state contracts, retries, memory, tracing
+globs: apps/agents/**/*.py
+alwaysApply: false
+---
+
+# LangGraph Agent
+
+## Node contract
+
+Every node has the contract docstring (reads/writes/side effects/failure mode) and returns a narrow `TypedDict` update — not a bare `dict`.
+
+```python
+class RetrieveUpdate(TypedDict):
+    context: list[str]
+
+def retrieve(state: AgentState) -> RetrieveUpdate:
+    """Fetch graph context for the question.
+
+    Reads from state:  messages
+    Writes to state:   context
+    Side effects:      read-only Neo4j query
+    Failure mode:      returns {"context": []} and flags an error
+    """
+```
+
+## State & reducers
+
+Accumulating fields use documented reducers, e.g. `errors: Annotated[list[str], operator.add]`. Document merge semantics inline in `state.py`.
+
+## Resilience
+
+- Register each node with a `RetryPolicy` (`add_node(name, fn, retry=RetryPolicy(...))`).
+- Fail closed: on retrieval/generation failure, return a clear error state — never emit a confident answer from empty/partial context.
+
+## Memory & compile
+
+Compile with a `PostgresSaver` (or `AsyncPostgresSaver`) checkpointer and a `PostgresStore`, using Supabase Postgres. Use `thread_id` per conversation.
+
+## Prompts & tracing
+
+- Prompts live in versioned files under `prompts/` — never inline string literals.
+- Wrap runs with `RunnableConfig(run_name=..., tags=[...], metadata={...})` so LangSmith traces are filterable.
+- Every LLM call passes `timeout` and `max_tokens`.

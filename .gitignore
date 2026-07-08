@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Env & secrets
+.env
+!.env.example
+
+# Cursor MCP config (contains credentials)
+.cursor/mcp.json
+
+# Node
+node_modules/
+.next/
+
+# OS
+.DS_Store

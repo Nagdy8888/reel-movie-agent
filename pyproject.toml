@@ -1,0 +1,48 @@
+[project]
+name = "reel-workspace"
+version = "0.0.0"
+description = "GraphRAG Movie Agent monorepo (Reel)."
+requires-python = ">=3.11"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/agents", "apps/backend"]
+
+[tool.uv.sources]
+agents = { workspace = true }
+backend = { workspace = true }
+
+[dependency-groups]
+dev = [
+  # Workspace packages — so plain `uv sync` installs them when root is package=false.
+  "agents",
+  "backend",
+  "ruff>=0.6",
+  "pyright>=1.1.380",
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "pre-commit>=3.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["apps/agents/src", "apps/backend/src"]
+
+[tool.ruff.lint]
+# E/F=pyflakes+pycodestyle, I=isort, UP=pyupgrade, D=pydocstyle (mandatory docstrings), B=bugbear, ASYNC
+select = ["E", "F", "I", "UP", "D", "B", "ASYNC"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["D"]        # tests still get docstrings via testing rule, but do not fail CI on missing package docstrings
+"**/__init__.py" = ["D104"]  # allow empty package docstring on __init__ if truly empty
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+include = ["apps/agents/src", "apps/backend/src"]

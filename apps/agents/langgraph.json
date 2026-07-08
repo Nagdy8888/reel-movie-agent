@@ -4,5 +4,19 @@
     "agent": "./src/agents/graph.py:graph"
   },
   "env": "../../.env",
-  "python_version": "3.11"
+  "python_version": "3.11",
+  "http": {
+    "cors": {
+      "allow_origins": [
+        "https://smith.langchain.com",
+        "http://localhost:2024",
+        "http://127.0.0.1:2024",
+        "http://localhost:3000"
+      ],
+      "allow_methods": ["*"],
+      "allow_headers": ["*"],
+      "allow_credentials": true,
+      "expose_headers": ["x-pagination-total", "x-pagination-next", "content-location"]
+    }
+  }
 }

@@ -15,6 +15,7 @@ dependencies = [
   "pydantic-settings>=2",
   "python-dotenv>=1",
   "tenacity>=9",
+  "psycopg[binary]>=3.2",
 ]
 
 [build-system]

@@ -36,6 +36,9 @@ class AgentSettings(BaseSettings):
     embedding_dimensions: int = Field(
         default=3072, description="Embedding vector size (text-embedding-3-large=3072)."
     )
+    supabase_db_url: str = Field(
+        description="Postgres URL for LangGraph checkpointer/store (Supabase)."
+    )
 
 
 def get_settings() -> AgentSettings:

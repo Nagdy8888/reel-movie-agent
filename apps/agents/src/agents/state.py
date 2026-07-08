@@ -16,7 +16,13 @@ class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
 
 
-class RespondUpdate(TypedDict):
-    """State update produced by the `respond` node."""
+class RouterUpdate(TypedDict):
+    """State update produced by the `router` node."""
+
+    messages: list[AnyMessage]
+
+
+class GenerateUpdate(TypedDict):
+    """State update produced by the `generate` node."""
 
     messages: list[AnyMessage]

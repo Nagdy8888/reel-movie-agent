@@ -11,6 +11,7 @@ type CanvasNode = NodeObject<GraphNode & { __bckgDimensions?: [number, number] }
 type CanvasLink = LinkObject<GraphNode, GraphLink> & GraphLink;
 type GraphRef = ForceGraphMethods<CanvasNode, CanvasLink>;
 type LinkEndpoint = string | number | { id?: string | number } | null | undefined;
+type CategoryFilter = "all" | "Movie" | "Person";
 
 interface ForceGraphRuntimeProps {
   ref?: MutableRefObject<GraphRef | undefined>;
@@ -99,13 +100,23 @@ export function GraphCanvas({ fullGraph, highlight, sources, loading }: GraphCan
   const graphRef = useRef<GraphRef | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
 
   const graphData = useMemo(
-    () => ({
-      nodes: fullGraph.nodes.map((node) => ({ ...node })),
-      links: fullGraph.links.map((link) => ({ ...link })),
-    }),
-    [fullGraph],
+    () => {
+      const nodes =
+        categoryFilter === "all"
+          ? fullGraph.nodes
+          : fullGraph.nodes.filter((node) => node.type === categoryFilter);
+      const visibleNodeIds = new Set(nodes.map((node) => node.id));
+      return {
+        nodes: nodes.map((node) => ({ ...node })),
+        links: fullGraph.links
+          .filter((link) => visibleNodeIds.has(link.source) && visibleNodeIds.has(link.target))
+          .map((link) => ({ ...link })),
+      };
+    },
+    [categoryFilter, fullGraph],
   );
 
   const selectedMovieIds = useMemo(() => {
@@ -148,6 +159,10 @@ export function GraphCanvas({ fullGraph, highlight, sources, loading }: GraphCan
     () => [...highlightedNodeIds].sort().join("|"),
     [highlightedNodeIds],
   );
+  const activeHighlightedNodeIds = useMemo(
+    () => new Set(graphData.nodes.map((node) => node.id).filter((id) => highlightedNodeIds.has(id))),
+    [graphData.nodes, highlightedNodeIds],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -164,16 +179,27 @@ export function GraphCanvas({ fullGraph, highlight, sources, loading }: GraphCan
     if (size.width <= 0 || size.height <= 0 || graphData.nodes.length === 0) return;
     const timer = window.setTimeout(() => {
       const filter =
-        highlightedNodeIds.size > 0
-          ? (node: CanvasNode) => highlightedNodeIds.has(String(node.id))
+        activeHighlightedNodeIds.size > 0
+          ? (node: CanvasNode) => activeHighlightedNodeIds.has(String(node.id))
           : undefined;
-      graphRef.current?.zoomToFit(650, highlightedNodeIds.size > 0 ? 120 : 70, filter);
+      graphRef.current?.zoomToFit(650, activeHighlightedNodeIds.size > 0 ? 120 : 70, filter);
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [graphData.nodes.length, highlightKey, highlightedNodeIds, size.height, size.width]);
+  }, [
+    activeHighlightedNodeIds,
+    categoryFilter,
+    graphData.nodes.length,
+    highlightKey,
+    size.height,
+    size.width,
+  ]);
 
   const resetView = useCallback(() => {
     graphRef.current?.zoomToFit(500, 70);
+  }, []);
+
+  const toggleCategoryFilter = useCallback((filter: Exclude<CategoryFilter, "all">) => {
+    setCategoryFilter((current) => (current === filter ? "all" : filter));
   }, []);
 
   const drawNode = useCallback(
@@ -247,10 +273,32 @@ export function GraphCanvas({ fullGraph, highlight, sources, loading }: GraphCan
         </div>
         <div className="flex items-center gap-md">
           <div className="hidden lg:flex items-center gap-sm font-body-sm text-body-sm text-on-surface-variant">
-            <span className="inline-flex h-3 w-3 rounded-full bg-primary" />
-            Movie
-            <span className="inline-flex h-3 w-3 rounded-full bg-primary-container" />
-            Person
+            <button
+              type="button"
+              onClick={() => toggleCategoryFilter("Movie")}
+              aria-pressed={categoryFilter === "Movie"}
+              className={`inline-flex items-center gap-xs rounded-full border px-sm py-1 transition-colors ${
+                categoryFilter === "Movie"
+                  ? "border-primary bg-primary/15 text-primary"
+                  : "border-hairline hover:border-primary/60 hover:text-primary"
+              }`}
+            >
+              <span className="inline-flex h-3 w-3 rounded-full bg-primary" />
+              Movie
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleCategoryFilter("Person")}
+              aria-pressed={categoryFilter === "Person"}
+              className={`inline-flex items-center gap-xs rounded-full border px-sm py-1 transition-colors ${
+                categoryFilter === "Person"
+                  ? "border-primary-container bg-primary-container/15 text-primary-container"
+                  : "border-hairline hover:border-primary-container/60 hover:text-primary-container"
+              }`}
+            >
+              <span className="inline-flex h-3 w-3 rounded-full bg-primary-container" />
+              Person
+            </button>
           </div>
           <button
             type="button"

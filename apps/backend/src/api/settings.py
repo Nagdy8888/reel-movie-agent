@@ -16,6 +16,9 @@ class BackendSettings(BaseSettings):
     )
     supabase_url: str = Field(default="", description="Supabase project URL (auth).")
     supabase_jwt_aud: str = Field(default="authenticated", description="Expected JWT audience.")
+    supabase_db_url: str = Field(
+        default="", description="Postgres URL for chat persistence (Supabase)."
+    )
 
     def origins(self) -> list[str]:
         """Return the CORS origin allowlist as a list."""

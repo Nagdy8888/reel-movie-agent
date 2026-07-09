@@ -43,6 +43,12 @@ convention = "google"
 "**/tests/**" = ["D"]        # tests still get docstrings via testing rule, but do not fail CI on missing package docstrings
 "**/__init__.py" = ["D104"]  # allow empty package docstring on __init__ if truly empty
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["apps/agents/tests", "apps/backend/tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["apps/agents/src", "apps/backend/src"]
+
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"

@@ -206,7 +206,12 @@ async def _event_stream(graph, body: ChatRequest):
     inputs = {"messages": [HumanMessage(content=body.message)]}
     yield f"event: meta\ndata: {json.dumps({'thread_id': thread_id})}\n\n"
     async for event in graph.astream_events(inputs, config, version="v3"):
-        if event["event"] == "on_chat_model_stream":
+        # REQUIRED filter: the `retrieve` node also makes LLM calls (Text2Cypher
+        # + rerank), so restrict streamed tokens to the final `generate` node.
+        if (
+            event["event"] == "on_chat_model_stream"
+            and event["metadata"].get("langgraph_node") == "generate"
+        ):
             chunk = event["data"]["chunk"]
             text = getattr(chunk, "content", "")
             if text:
@@ -224,7 +229,7 @@ async def chat(body: ChatRequest, graph: GraphDep) -> StreamingResponse:
     )
 ```
 
-> The final generate node's tokens stream via `on_chat_model_stream`. Router/tool LLM calls also emit tokens — if you want to stream only the final answer, filter by `event["metadata"].get("langgraph_node") == "generate"`.
+> The final `generate` node's tokens stream via `on_chat_model_stream`. The `retrieve` node also invokes LLMs (Text2Cypher generation + reranking), so filtering by `event["metadata"].get("langgraph_node") == "generate"` is **required** — not optional — to guarantee only the grounded final answer reaches the client. (The retrieve-node utility LLM uses neo4j-graphrag's non-streaming client as defense in depth, but the node-name filter is the contract.)
 
 ### 7. Run locally
 

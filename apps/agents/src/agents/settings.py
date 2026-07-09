@@ -33,8 +33,18 @@ class AgentSettings(BaseSettings):
     vector_index_name: str = Field(
         default="movie_plot_embeddings", description="Neo4j vector index name."
     )
+    fulltext_index_name: str = Field(
+        default="movie_fulltext",
+        description="Neo4j full-text index name used for hybrid seed retrieval.",
+    )
     embedding_dimensions: int = Field(
         default=3072, description="Embedding vector size (text-embedding-3-large=3072)."
+    )
+    retrieval_top_k: int = Field(
+        default=5, description="Number of seed nodes each retriever returns."
+    )
+    rerank_top_k: int = Field(
+        default=5, description="Maximum candidates kept after reranking."
     )
     supabase_db_url: str = Field(
         description="Postgres URL for LangGraph checkpointer/store (Supabase)."

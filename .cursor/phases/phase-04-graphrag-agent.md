@@ -1,16 +1,33 @@
 # Phase 4 — GraphRAG Agent (Read-only Cypher + Vector Tools + Memory)
 
+> **Architecture update (implemented):** the agent evolved from a single-tool
+> LLM **router** into a **deterministic hybrid** pipeline. Every turn a single
+> `retrieve` node runs **both** retrievers, then merges and reranks the results;
+> a single `generate` node answers. Concretely:
+> - Flow is `START -> retrieve -> generate -> END` (no router / `ToolNode`).
+> - Text2Cypher is hardened: **DB-introspected schema** (`get_graph_schema`,
+>   never drifts), **few-shot examples**, and a **bounded self-correction loop**.
+> - Semantic search is **hybrid** (vector + full-text/BM25) via
+>   `HybridCypherRetriever`, then graph-expanded.
+> - An **LLM reranker** (non-streaming utility LLM) trims merged candidates
+>   before generation; only the `generate` node streams tokens.
+> - Embeddings are **composed from graph facts** (title + tagline + cast + roles
+>   + directors + writers), not just the tagline.
+>
+> The actual source under `apps/agents/src/agents/` is the source of truth. The
+> code blocks below reflect the original router design and are kept for history.
+
 ## Objective
 
 Upgrade the minimal agent into a real **GraphRAG agent**:
-- A **router** LLM node that decides which retrieval tool to call.
-- A **read-only Text2Cypher tool** (structured questions) protected by a Cypher-safety validator.
-- A **vector retriever tool** (semantic questions) over plot embeddings.
+- A **`retrieve` node** that runs both retrievers every turn, then merges + reranks.
+- A **robust read-only Text2Cypher** path (introspected schema + few-shot + self-correction) protected by a Cypher-safety validator.
+- A **hybrid semantic retriever** (vector + full-text) over composed embeddings, graph-expanded.
 - A **fail-closed generate node** that answers with citations, never fabricating from empty context.
 - **Memory**: a Postgres checkpointer + store (Supabase Postgres), `thread_id` per conversation.
 - Versioned prompts, `RetryPolicy` per node, LangSmith tags/metadata.
 
-At the end, in LangGraph Studio you can ask "What movies did Tom Hanks act in?" (Cypher path) and "a movie about dreams within dreams" (vector path) and get grounded answers.
+At the end, in LangGraph Studio you can ask "What movies did Tom Hanks act in?" (structured/Cypher path) and "a movie about dreams within dreams" (semantic path) and get grounded answers — both retrievers run and the answer is reranked and grounded.
 
 ## Prerequisites
 
@@ -292,8 +309,9 @@ Adds `SUPABASE_DB_URL`. Plus all Phase 2/3 vars.
 ## Acceptance criteria
 
 - [ ] `ensure_read_only` raises on a query containing `CREATE`/`DELETE`/etc. and passes a plain `MATCH`.
-- [ ] In Studio, a structured question routes to `graph_query` and returns graph facts.
-- [ ] A semantic question routes to `semantic_search` and returns plot-based matches.
+- [ ] In Studio, a structured question yields graph facts via robust Text2Cypher (introspected schema + few-shot + self-correction).
+- [ ] A semantic question yields hybrid (vector + full-text) matches, graph-expanded into cast/crew/reviews.
+- [ ] The `retrieve` node runs both retrievers and reranks; the `generate` node is the only text/streaming producer.
 - [ ] With empty/failed retrieval, the answer says it doesn't know (fail-closed) — no fabrication.
 - [ ] `build_checkpointer()`/`build_store()` connect to Supabase Postgres and `.setup()` succeeds.
 - [ ] `uv run ruff check .` passes; every node has a contract docstring.

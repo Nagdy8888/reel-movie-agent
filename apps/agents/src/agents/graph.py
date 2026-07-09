@@ -1,14 +1,12 @@
-"""Assemble and compile the GraphRAG Reel agent graph with memory."""
+"""Assemble and compile the deterministic hybrid GraphRAG Reel agent."""
 
 from typing import TYPE_CHECKING
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.types import RetryPolicy
 
-from agents.nodes import generate, router
+from agents.nodes import generate, retrieve
 from agents.state import AgentState
-from agents.tools import TOOLS
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -20,34 +18,30 @@ def build_graph(
     checkpointer: "BaseCheckpointSaver | None" = None,
     store: "BaseStore | None" = None,
 ) -> "CompiledStateGraph":
-    """Build and compile the GraphRAG agent.
+    """Build and compile the deterministic hybrid GraphRAG agent.
 
-    Flow: START -> router -> (tools ->)? generate -> END.
-    The router performs a single retrieval hop (or none); `generate` is the only
-    node that produces user-facing text, and it is grounded + fail-closed.
-    Compiled WITHOUT a checkpointer by default so LangGraph Studio can supply
-    its own; the backend (Phase 5) passes Postgres checkpointer + store.
+    Flow: START -> retrieve -> generate -> END.
+    `retrieve` always runs both retrievers (robust Text2Cypher + hybrid
+    vector/full-text semantic search with graph expansion), then merges and
+    reranks the candidates into grounding context. `generate` is the only node
+    that produces user-facing text and is grounded + fail-closed. Compiled
+    WITHOUT a checkpointer by default so LangGraph Studio can supply its own;
+    the backend (Phase 5) passes a Postgres checkpointer + store.
     """
     builder = StateGraph(AgentState)
     builder.add_node(
-        "router",
-        router,
+        "retrieve",
+        retrieve,
         retry_policy=RetryPolicy(max_attempts=3),
     )
-    builder.add_node("tools", ToolNode(TOOLS))
     builder.add_node(
         "generate",
         generate,
         retry_policy=RetryPolicy(max_attempts=3),
     )
 
-    builder.add_edge(START, "router")
-    builder.add_conditional_edges(
-        "router",
-        tools_condition,
-        {"tools": "tools", END: "generate"},
-    )
-    builder.add_edge("tools", "generate")
+    builder.add_edge(START, "retrieve")
+    builder.add_edge("retrieve", "generate")
     builder.add_edge("generate", END)
     return builder.compile(checkpointer=checkpointer, store=store)
 

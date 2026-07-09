@@ -46,6 +46,27 @@ def get_text2cypher_llm() -> OpenAILLM:
 
 
 @lru_cache(maxsize=1)
+def get_utility_llm() -> OpenAILLM:
+    """Return the shared non-streaming LLM for internal utility tasks (reranking).
+
+    Uses neo4j-graphrag's ``OpenAILLM`` (not LangChain ``ChatOpenAI``) so its
+    calls never emit LangChain streaming events. This keeps the backend SSE
+    stream (Phase 5) limited to the final ``generate`` node. Cached so the
+    client is created once, not per call.
+    """
+    settings = get_settings()
+    return OpenAILLM(
+        model_name=settings.openai_chat_model,
+        api_key=settings.openai_api_key,
+        timeout=settings.llm_timeout_seconds,
+        model_params={
+            "temperature": 0,
+            "max_tokens": settings.llm_max_tokens,
+        },
+    )
+
+
+@lru_cache(maxsize=1)
 def get_embedder() -> OpenAIEmbeddings:
     """Return the shared OpenAI embedder for vector search.
 

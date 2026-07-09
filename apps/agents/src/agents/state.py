@@ -1,5 +1,6 @@
 """State schema for the Reel agent graph."""
 
+import operator
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
@@ -11,15 +12,22 @@ class AgentState(TypedDict):
 
     messages: full chat history. Reducer `add_messages` appends new messages
         instead of overwriting, so each node can return only its new message(s).
+    context: merged, reranked grounding text for the current turn. Overwritten
+        each turn (last-write-wins) because it is derived fresh from retrieval.
+    errors: non-fatal retrieval/generation issues, kept for observability.
+        Reducer `operator.add` appends so nodes never clobber prior entries.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
+    context: str
+    errors: Annotated[list[str], operator.add]
 
 
-class RouterUpdate(TypedDict):
-    """State update produced by the `router` node."""
+class RetrieveUpdate(TypedDict):
+    """State update produced by the `retrieve` node."""
 
-    messages: list[AnyMessage]
+    context: str
+    errors: list[str]
 
 
 class GenerateUpdate(TypedDict):

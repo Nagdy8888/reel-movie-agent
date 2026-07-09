@@ -19,6 +19,44 @@ def mock_graph() -> MagicMock:
         del version
         yield {
             "type": "event",
+            "method": "values",
+            "params": {"data": {"context": ""}},
+            "seq": 0,
+        }
+        yield {
+            "type": "event",
+            "method": "values",
+            "params": {
+                "data": {
+                    "context": "[Graph facts]\nForrest Gump",
+                    "sources": [
+                        {
+                            "id": "movie-forrest-gump",
+                            "title": "Forrest Gump",
+                            "subtitle": None,
+                            "year": "1994",
+                            "tags": ["Tom Hanks"],
+                        }
+                    ],
+                    "graph": {
+                        "nodes": [
+                            {"id": "movie-forrest-gump", "label": "Forrest Gump", "type": "Movie"},
+                            {"id": "person-tom-hanks", "label": "Tom Hanks", "type": "Person"},
+                        ],
+                        "links": [
+                            {
+                                "source": "person-tom-hanks",
+                                "target": "movie-forrest-gump",
+                                "label": "Acted In",
+                            }
+                        ],
+                    },
+                }
+            },
+            "seq": 0,
+        }
+        yield {
+            "type": "event",
             "method": "messages",
             "params": {
                 "data": (

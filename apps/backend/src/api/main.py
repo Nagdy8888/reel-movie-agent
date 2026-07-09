@@ -1,6 +1,7 @@
 """FastAPI application factory and lifespan for the Reel backend."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -15,7 +16,7 @@ from agents.memory import build_checkpointer, build_store
 from api.db import open_pool
 from api.limiter import limiter
 from api.middleware import RequestContextMiddleware
-from api.routes import chat, chats, health
+from api.routes import chat, chats, graph, health
 from api.settings import BackendSettings, get_settings
 
 logger = logging.getLogger("reel")
@@ -30,6 +31,26 @@ def _configure_logging() -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(logging.INFO)
+
+
+def _configure_tracing(settings: BackendSettings) -> None:
+    """Publish LangSmith settings into the process env so agent runs are traced.
+
+    LangChain/LangSmith decide whether to trace by reading environment variables
+    (``LANGSMITH_TRACING`` + ``LANGSMITH_API_KEY``), not our Settings object.
+    Pydantic loads ``.env`` into the Settings instance but never exports it, so a
+    plain uvicorn process — unlike ``langgraph dev``, which auto-loads ``.env`` —
+    would run untraced. We bridge the values here (without clobbering variables
+    already exported in the shell) so backend-driven runs appear in LangSmith.
+    """
+    if not (settings.langsmith_tracing and settings.langsmith_api_key):
+        logger.info("LangSmith tracing disabled (no api key / tracing flag off)")
+        return
+    os.environ.setdefault("LANGSMITH_TRACING", "true")
+    os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
+    os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
+    os.environ.setdefault("LANGSMITH_ENDPOINT", settings.langsmith_endpoint)
+    logger.info("LangSmith tracing enabled", extra={"project": settings.langsmith_project})
 
 
 def _validate_env(settings: BackendSettings) -> None:
@@ -67,6 +88,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     _configure_logging()
     settings = get_settings()
+    _configure_tracing(settings)
     _validate_env(settings)
 
     app = FastAPI(title="Reel API", version="0.1.0", lifespan=lifespan)
@@ -94,6 +116,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(chat.router)
     app.include_router(chats.router)
+    app.include_router(graph.router)
     return app
 
 

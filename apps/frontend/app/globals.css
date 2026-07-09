@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Page canvas (matches the code.html body override) */
+body {
+  background-color: #0E0E11;
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+}
+
+/* Glassmorphism panels (nav bars, floating headers, feature cards) */
+.glass-panel {
+  background: rgba(28, 28, 34, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid #2A2A33;
+}
+
+/* Warm gold ambient glow (icon chips, hover states) */
+.gold-glow {
+  box-shadow: 0 0 20px rgba(232, 180, 87, 0.15);
+}
+
+/* Landing hero radial wash */
+.hero-gradient {
+  background: radial-gradient(circle at 50% 30%, rgba(232, 180, 87, 0.05) 0%, rgba(14, 14, 17, 1) 70%);
+}
+
+/* Gold text shadow (brand wordmark, movie titles on cards) */
+.text-glow {
+  text-shadow: 0 0 10px rgba(232, 180, 87, 0.3);
+}
+
+/* Thin gold scrollbar used in scroll containers */
+.thin-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(232, 180, 87, 0.2);
+  border-radius: 4px;
+}
+
+/* Input focus glow (sign-in fields) */
+.input-glow:focus {
+  border-color: #ffd185;
+  box-shadow: 0 0 0 2px rgba(255, 209, 133, 0.15);
+}
+
+/* Decorative graph-node pulse (landing hero / visual band SVGs) */
+@keyframes pulse-node {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+    box-shadow: 0 0 15px rgba(232, 180, 87, 0.5);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+}
+.node {
+  animation: pulse-node 3s infinite ease-in-out;
+}
+.node:nth-child(2) {
+  animation-delay: 0.5s;
+}
+.node:nth-child(3) {
+  animation-delay: 1s;
+}
+.node:nth-child(4) {
+  animation-delay: 1.5s;
+}
+
+/* Chat "thinking" indicator flicker */
+@keyframes flicker {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(232, 180, 87, 0.8);
+  }
+}
+.thinking-dot {
+  animation: flicker 1.5s infinite;
+}
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.5s;
+}
+.thinking-dot:nth-child(3) {
+  animation-delay: 1s;
+}

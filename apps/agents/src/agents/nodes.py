@@ -2,10 +2,23 @@
 
 from langchain_core.messages import AIMessage, SystemMessage
 
-from agents.clients import get_chat_model
-from agents.prompts.system import EMPTY_CONTEXT_REPLY, GENERATE_SYSTEM_V2
-from agents.state import AgentState, GenerateUpdate, RetrieveUpdate
-from agents.tools import run_graph_query, run_rerank, run_semantic_search
+from agents.artifacts import build_retrieval_artifacts
+from agents.clients import get_chat_model, get_utility_llm
+from agents.prompts.system import (
+    CONVERSE_SYSTEM_V1,
+    EMPTY_CONTEXT_REPLY,
+    GENERATE_SYSTEM_V3,
+    ROUTER_SYSTEM_V1,
+)
+from agents.state import AgentState, GenerateUpdate, RetrieveUpdate, RouteUpdate
+from agents.tools import (
+    run_graph_query,
+    run_recommendation_fallback,
+    run_rerank,
+    run_semantic_search,
+)
+
+VALID_INTENTS = ("factual", "recommend", "chitchat")
 
 
 def _latest_question(state: AgentState) -> str:
@@ -23,20 +36,51 @@ def _latest_question(state: AgentState) -> str:
     return ""
 
 
+def route(state: AgentState) -> RouteUpdate:
+    """Classify the latest turn so the graph can branch on intent.
+
+    Reads from state:  messages
+    Writes to state:   intent
+    Side effects:      one non-streaming utility LLM call (classification only)
+    Failure mode:      defaults to "factual" so an unclassifiable turn still
+                       goes through grounded, fail-closed retrieval.
+    """
+    question = _latest_question(state)
+    if not question:
+        return {"intent": "chitchat"}
+    try:
+        raw = str(get_utility_llm().invoke(ROUTER_SYSTEM_V1.format(question=question)).content)
+    except Exception:
+        return {"intent": "factual"}
+    label = raw.strip().lower()
+    for intent in VALID_INTENTS:
+        if intent in label:
+            return {"intent": intent}
+    return {"intent": "factual"}
+
+
 def retrieve(state: AgentState) -> RetrieveUpdate:
     """Run both retrievers, merge, and rerank into grounding context.
 
-    Reads from state:  messages
+    Reads from state:  messages, intent
     Writes to state:   context, errors
     Side effects:      read-only Neo4j queries + non-streaming OpenAI calls
                        (Text2Cypher generation and reranking)
     Failure mode:      returns {"context": "", "errors": [...]} on retrieval
                        failure so `generate` fails closed (never fabricates).
+                       For a `recommend` turn that matched nothing, falls back
+                       to a set of well-reviewed movies so open-ended requests
+                       still yield real suggestions.
     """
     question = _latest_question(state)
     errors: list[str] = []
     if not question:
-        return {"context": "", "errors": ["retrieve: no user question found"]}
+        return {
+            "context": "",
+            "sources": [],
+            "graph": {"nodes": [], "links": []},
+            "errors": ["retrieve: no user question found"],
+        }
 
     candidates: list[str] = []
     try:
@@ -51,12 +95,39 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
     except Exception as exc:
         errors.append(f"semantic_search: {exc}")
 
+    if not candidates and state.get("intent") == "recommend":
+        try:
+            candidates = run_recommendation_fallback()
+        except Exception as exc:
+            errors.append(f"recommendation_fallback: {exc}")
+
     try:
         candidates = run_rerank(question, candidates)
     except Exception as exc:
         errors.append(f"rerank: {exc}")
 
-    return {"context": "\n\n".join(candidates), "errors": errors}
+    artifacts = build_retrieval_artifacts(candidates)
+    return {
+        "context": "\n\n".join(candidates),
+        "sources": artifacts["sources"],
+        "graph": artifacts["graph"],
+        "errors": errors,
+    }
+
+
+def converse(state: AgentState) -> GenerateUpdate:
+    """Reply to greetings/small talk without touching the movie graph.
+
+    Reads from state:  messages
+    Writes to state:   messages (final AI answer)
+    Side effects:      one streaming OpenAI call
+    Failure mode:      relies on the node RetryPolicy; the prompt forbids
+                       asserting any specific movie fact, so no fabrication.
+    """
+    model = get_chat_model()
+    system = SystemMessage(content=CONVERSE_SYSTEM_V1)
+    reply = model.invoke([system, *state["messages"]])
+    return {"messages": [reply]}
 
 
 def generate(state: AgentState) -> GenerateUpdate:
@@ -73,6 +144,6 @@ def generate(state: AgentState) -> GenerateUpdate:
         return {"messages": [AIMessage(content=EMPTY_CONTEXT_REPLY)]}
 
     model = get_chat_model()
-    system = SystemMessage(content=GENERATE_SYSTEM_V2.format(context=context))
+    system = SystemMessage(content=GENERATE_SYSTEM_V3.format(context=context))
     reply = model.invoke([system, *state["messages"]])
     return {"messages": [reply]}

@@ -36,7 +36,7 @@ class ConversationSummary(BaseModel):
     id: UUID = Field(description="Conversation id.")
     thread_id: str = Field(description="LangGraph thread id backing this chat.")
     title: str | None = Field(
-        default=None, description="Short title derived from the first message."
+        default=None, description="Short LLM-generated title summarizing the conversation."
     )
     created_at: datetime = Field(description="Creation time.")
     updated_at: datetime = Field(description="Last activity time.")
@@ -46,3 +46,37 @@ class ConversationDetail(ConversationSummary):
     """A conversation with its ordered messages."""
 
     messages: list[MessageOut] = Field(description="Messages in chronological order.")
+
+
+class SourceOut(BaseModel):
+    """A cited movie source for the right pane."""
+
+    id: str = Field(description="Stable source id.")
+    title: str = Field(description="Movie title.")
+    subtitle: str | None = Field(default=None, description="Optional tagline or subtitle.")
+    year: str | None = Field(default=None, description="Release year when known.")
+    poster_url: str | None = Field(default=None, description="Optional movie poster image URL.")
+    tags: list[str] = Field(default_factory=list, description="Cast/director tags.")
+
+
+class GraphNodeOut(BaseModel):
+    """A node in the explored knowledge subgraph."""
+
+    id: str = Field(description="Stable node id.")
+    label: str = Field(description="Display label.")
+    type: str = Field(description="Node label type, e.g. Movie or Person.")
+
+
+class GraphLinkOut(BaseModel):
+    """A relationship edge in the explored knowledge subgraph."""
+
+    source: str = Field(description="Source node id.")
+    target: str = Field(description="Target node id.")
+    label: str = Field(description="Relationship label.")
+
+
+class GraphOut(BaseModel):
+    """Subgraph explored during retrieval."""
+
+    nodes: list[GraphNodeOut] = Field(default_factory=list, description="Graph nodes.")
+    links: list[GraphLinkOut] = Field(default_factory=list, description="Graph edges.")

@@ -50,6 +50,14 @@ class ChatStore:
                 (conversation_id,),
             )
 
+    def update_title(self, conversation_id: str, title: str) -> None:
+        """Set the sidebar title for a conversation."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE conversations SET title = %s WHERE id = %s",
+                (title, conversation_id),
+            )
+
     def list_for_user(self, user_id: str) -> list[dict[str, Any]]:
         """Return the user's conversations, newest first."""
         with self._pool.connection() as conn:

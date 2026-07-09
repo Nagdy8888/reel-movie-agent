@@ -78,6 +78,38 @@ RETURN
 ORDER BY score DESC
 """
 
+# Fallback recommendation query. Used only when both retrievers come up empty
+# for a recommendation-style request (e.g. a bare "suggest a film to watch"
+# that matches nothing specific). Returns the best-reviewed movies in the SAME
+# text shape as MOVIE_CONTEXT_QUERY so downstream artifact parsing and the
+# generate prompt work unchanged. This grounds open-ended recommendations in
+# real graph movies instead of the fail-closed "no information" reply.
+FALLBACK_MOVIES_QUERY = """
+MATCH (movie:Movie)
+OPTIONAL MATCH (:Person)-[rr:REVIEWED]->(movie)
+WITH movie, avg(rr.rating) AS avg_rating, count(rr) AS review_count
+OPTIONAL MATCH (a:Person)-[r:ACTED_IN]->(movie)
+WITH movie, avg_rating, review_count, collect(DISTINCT
+    a.name + CASE
+        WHEN r.roles IS NULL OR size(r.roles) = 0 THEN ''
+        ELSE ' as ' + reduce(acc = '', role IN r.roles |
+            CASE WHEN acc = '' THEN role ELSE acc + ', ' + role END)
+    END) AS cast
+OPTIONAL MATCH (d:Person)-[:DIRECTED]->(movie)
+WITH movie, avg_rating, review_count, cast, collect(DISTINCT d.name) AS directors
+RETURN
+    'Movie: ' + movie.title
+    + coalesce(' (' + toString(movie.released) + ')', '')
+    + coalesce(' - tagline: "' + movie.tagline + '"', '')
+    + CASE WHEN size(cast) > 0 THEN '\\nCast: ' + reduce(s = '', x IN cast |
+        CASE WHEN s = '' THEN x ELSE s + '; ' + x END) ELSE '' END
+    + CASE WHEN size(directors) > 0 THEN '\\nDirected by: ' + reduce(s = '', x IN directors |
+        CASE WHEN s = '' THEN x ELSE s + ', ' + x END) ELSE '' END
+    AS text
+ORDER BY review_count DESC, avg_rating DESC, movie.title
+LIMIT $limit
+"""
+
 MAX_CYPHER_ATTEMPTS = 3
 
 
@@ -207,6 +239,34 @@ def run_semantic_search(question: str) -> list[str]:
     )
     result = retriever.search(query_text=question, top_k=settings.retrieval_top_k)
     return [str(item.content) for item in result.items if str(item.content).strip()]
+
+
+def run_recommendation_fallback(limit: int | None = None) -> list[str]:
+    """Return a few well-reviewed movies as fallback recommendation context.
+
+    Used only when a recommendation request matched nothing specific, so the
+    agent can still suggest real movies from the graph instead of failing
+    closed. Read-only: runs a fixed, parameterised query in a read transaction.
+
+    Args:
+        limit: Maximum number of movies to return. Defaults to the configured
+            ``retrieval_top_k`` when not provided.
+
+    Returns:
+        A list of graph-grounded movie neighbourhood strings (possibly empty).
+    """
+    settings = get_settings()
+    top_k = limit if limit is not None else settings.retrieval_top_k
+    driver = get_neo4j_driver()
+
+    def _read(tx: neo4j.ManagedTransaction) -> list[str]:
+        """Fetch the best-reviewed movies inside a read transaction."""
+        result = tx.run(cast(LiteralString, FALLBACK_MOVIES_QUERY), limit=top_k)
+        return [str(record.get("text", "")).strip() for record in result]
+
+    with driver.session(database=settings.neo4j_database) as session:
+        rows = session.execute_read(_read)
+    return [row for row in rows if row]
 
 
 def run_rerank(question: str, candidates: list[str]) -> list[str]:

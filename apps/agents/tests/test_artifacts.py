@@ -121,6 +121,15 @@ def test_cited_titles_from_answer_preserves_order() -> None:
     assert titles == ["The Matrix", "Forrest Gump"]
 
 
+def test_cited_titles_from_answer_ignores_punctuation() -> None:
+    """Title matching tolerates answer punctuation differences."""
+    titles = cited_titles_from_answer(
+        "Tom Hanks acted in That Thing You Do as Mr. White.",
+        ["That Thing You Do!"],
+    )
+    assert titles == ["That Thing You Do!"]
+
+
 def test_filter_artifacts_by_answer_keeps_only_cited_movies() -> None:
     """The right pane should match movies cited in the grounded answer."""
     sources = sources_from_candidates([_SAMPLE_CHUNK])
@@ -155,4 +164,73 @@ def test_filter_artifacts_by_answer_keeps_only_cited_movies() -> None:
     assert {node["label"] for node in filtered["graph"]["nodes"]} == {
         "Forrest Gump",
         "Tom Hanks",
+    }
+
+
+def test_filter_artifacts_by_answer_uses_graph_movie_titles_for_highlights() -> None:
+    """Graph highlights include answered movies even when source cards are sparse."""
+    sources = sources_from_candidates(
+        [
+            'Movie: Cast Away (2000) - tagline: "At the edge of the world"\n'
+            "Cast: Tom Hanks as Chuck Noland"
+        ]
+    )
+    graph = {
+        "nodes": [
+            {"id": "movie:that-thing-you-do", "label": "That Thing You Do!", "type": "Movie"},
+            {
+                "id": "movie:sleepless-in-seattle",
+                "label": "Sleepless in Seattle",
+                "type": "Movie",
+            },
+            {"id": "movie:cast-away", "label": "Cast Away", "type": "Movie"},
+            {"id": "movie:you-ve-got-mail", "label": "You've Got Mail", "type": "Movie"},
+            {"id": "person:tom-hanks", "label": "Tom Hanks", "type": "Person"},
+        ],
+        "links": [
+            {
+                "source": "person:tom-hanks",
+                "target": "movie:that-thing-you-do",
+                "label": "Acted In",
+            },
+            {
+                "source": "person:tom-hanks",
+                "target": "movie:sleepless-in-seattle",
+                "label": "Acted In",
+            },
+            {
+                "source": "person:tom-hanks",
+                "target": "movie:cast-away",
+                "label": "Acted In",
+            },
+            {
+                "source": "person:tom-hanks",
+                "target": "movie:you-ve-got-mail",
+                "label": "Acted In",
+            },
+        ],
+    }
+
+    filtered = filter_artifacts_by_answer(
+        sources,
+        graph,
+        (
+            "Tom Hanks acted in That Thing You Do as Mr. White, "
+            "Sleepless in Seattle as Sam Baldwin, Cast Away as Chuck Noland, "
+            "and You've Got Mail as Joe Fox."
+        ),
+    )
+
+    assert {node["label"] for node in filtered["graph"]["nodes"]} == {
+        "That Thing You Do!",
+        "Sleepless in Seattle",
+        "Cast Away",
+        "You've Got Mail",
+        "Tom Hanks",
+    }
+    assert {link["target"] for link in filtered["graph"]["links"]} == {
+        "movie:that-thing-you-do",
+        "movie:sleepless-in-seattle",
+        "movie:cast-away",
+        "movie:you-ve-got-mail",
     }

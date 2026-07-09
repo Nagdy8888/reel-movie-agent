@@ -108,14 +108,41 @@ export function GraphCanvas({ fullGraph, highlight, sources, loading }: GraphCan
     [fullGraph],
   );
 
-  const highlightedNodeIds = useMemo(
-    () => new Set(highlight.nodes.map((node) => node.id)),
-    [highlight.nodes],
-  );
-  const highlightedLinkKeys = useMemo(
-    () => new Set(highlight.links.map((link) => linkKey(link))),
-    [highlight.links],
-  );
+  const selectedMovieIds = useMemo(() => {
+    const ids = new Set(sources.map((source) => source.id));
+    for (const node of highlight.nodes) {
+      if (node.type === "Movie") ids.add(node.id);
+    }
+    return ids;
+  }, [highlight.nodes, sources]);
+
+  const highlightedNodeIds = useMemo(() => {
+    const ids = new Set(highlight.nodes.map((node) => node.id));
+    for (const movieId of selectedMovieIds) {
+      ids.add(movieId);
+    }
+    for (const link of graphData.links) {
+      const source = endpointId(link.source as LinkEndpoint);
+      const target = endpointId(link.target as LinkEndpoint);
+      if (selectedMovieIds.has(source) || selectedMovieIds.has(target)) {
+        ids.add(source);
+        ids.add(target);
+      }
+    }
+    return ids;
+  }, [graphData.links, highlight.nodes, selectedMovieIds]);
+
+  const highlightedLinkKeys = useMemo(() => {
+    const keys = new Set(highlight.links.map((link) => linkKey(link)));
+    for (const link of graphData.links) {
+      const source = endpointId(link.source as LinkEndpoint);
+      const target = endpointId(link.target as LinkEndpoint);
+      if (selectedMovieIds.has(source) || selectedMovieIds.has(target)) {
+        keys.add(linkKey(link));
+      }
+    }
+    return keys;
+  }, [graphData.links, highlight.links, selectedMovieIds]);
   const hasHighlight = highlightedNodeIds.size > 0 || highlightedLinkKeys.size > 0;
   const highlightKey = useMemo(
     () => [...highlightedNodeIds].sort().join("|"),

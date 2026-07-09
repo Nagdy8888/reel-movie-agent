@@ -409,11 +409,11 @@ def cited_titles_from_answer(answer: str, available_titles: list[str]) -> list[s
     Returns:
         Cited titles in the order they first appear in ``answer``.
     """
-    answer_lower = answer.lower()
+    answer_lower = _normalized_title_text(answer)
     matches: list[tuple[int, str]] = []
     seen: set[str] = set()
     for title in available_titles:
-        key = title.lower()
+        key = _normalized_title_text(title)
         if key in seen:
             continue
         position = answer_lower.find(key)
@@ -422,6 +422,11 @@ def cited_titles_from_answer(answer: str, available_titles: list[str]) -> list[s
             seen.add(key)
     matches.sort(key=lambda item: item[0])
     return [title for _, title in matches]
+
+
+def _normalized_title_text(value: str) -> str:
+    """Return lowercase title text with punctuation collapsed to spaces."""
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
 def filter_graph_by_titles(graph: GraphArtifact, titles: set[str]) -> GraphArtifact:
@@ -436,10 +441,11 @@ def filter_graph_by_titles(graph: GraphArtifact, titles: set[str]) -> GraphArtif
     """
     if not titles:
         return {"nodes": [], "links": []}
+    title_keys = {_normalized_title_text(title) for title in titles}
     cited_movie_ids = {
         node["id"]
         for node in graph["nodes"]
-        if node["type"] == "Movie" and node["label"] in titles
+        if node["type"] == "Movie" and _normalized_title_text(node["label"]) in title_keys
     }
     if not cited_movie_ids:
         return {"nodes": [], "links": []}
@@ -475,14 +481,24 @@ def filter_artifacts_by_answer(
         artifacts are returned unchanged so factual answers still show context.
     """
     available = [cast(str, source["title"]) for source in sources]
+    seen = {_normalized_title_text(title) for title in available}
+    for node in graph["nodes"]:
+        if node["type"] != "Movie":
+            continue
+        title = cast(str, node["label"])
+        key = _normalized_title_text(title)
+        if key in seen:
+            continue
+        seen.add(key)
+        available.append(title)
     cited = cited_titles_from_answer(answer, available)
     if not cited:
         return RetrievalArtifacts(sources=sources, graph=graph)
     cited_set = set(cited)
-    title_order = {title.lower(): index for index, title in enumerate(cited)}
+    title_order = {_normalized_title_text(title): index for index, title in enumerate(cited)}
     filtered_sources = sorted(
-        [source for source in sources if source["title"].lower() in title_order],
-        key=lambda source: title_order[source["title"].lower()],
+        [source for source in sources if _normalized_title_text(source["title"]) in title_order],
+        key=lambda source: title_order[_normalized_title_text(source["title"])],
     )
     return RetrievalArtifacts(
         sources=filtered_sources,

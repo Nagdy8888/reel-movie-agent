@@ -144,6 +144,7 @@ export async function getChat(id: string, token: string): Promise<ConversationDe
 export async function getFullGraph(token: string): Promise<GraphData> {
   const res = await fetch(`${API}/graph`, {
     headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
   if (res.status === 401 || res.status === 403) throw new Error("unauthorized");
   if (!res.ok) throw new Error(`getFullGraph failed: ${res.status}`);

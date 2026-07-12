@@ -304,18 +304,13 @@ def graph_from_titles(titles: list[str]) -> GraphArtifact:
 
 
 @lru_cache(maxsize=1)
-def full_graph() -> GraphArtifact:
-    """Load the complete read-only Movie/Person knowledge graph.
+def _full_graph_cached() -> GraphArtifact:
+    """Load and cache a successful full-graph snapshot from Neo4j.
 
-    Args:
-        None.
-
-    Returns:
-        Every supported Movie/Person node and relationship in Neo4j, normalized
-        with the same node ids as turn-level graph artifacts. Returns an empty
-        graph if Neo4j is unavailable.
+    Raises:
+        Exception: Propagates Neo4j/driver failures so callers can avoid caching
+            empty fallbacks.
     """
-    empty: GraphArtifact = {"nodes": [], "links": []}
     settings = get_settings()
     driver = get_neo4j_driver()
     nodes: dict[str, GraphNodeArtifact] = {}
@@ -336,11 +331,8 @@ def full_graph() -> GraphArtifact:
         ]
         return node_rows, link_rows
 
-    try:
-        with driver.session(database=settings.neo4j_database) as session:
-            node_rows, link_rows = session.execute_read(_read)
-    except Exception:
-        return empty
+    with driver.session(database=settings.neo4j_database) as session:
+        node_rows, link_rows = session.execute_read(_read)
 
     for row in node_rows:
         node = _node_artifact(
@@ -380,6 +372,31 @@ def full_graph() -> GraphArtifact:
         )
 
     return GraphArtifact(nodes=list(nodes.values()), links=links)
+
+
+def full_graph() -> GraphArtifact:
+    """Load the complete read-only Movie/Person knowledge graph.
+
+    Args:
+        None.
+
+    Returns:
+        Every supported Movie/Person node and relationship in Neo4j, normalized
+        with the same node ids as turn-level graph artifacts. Returns an empty
+        graph if Neo4j is unavailable. Failures and empty snapshots are not
+        cached so a later healthy Neo4j (or post-ingestion load) is picked up.
+    """
+    empty: GraphArtifact = {"nodes": [], "links": []}
+    try:
+        graph = _full_graph_cached()
+    except Exception:
+        return empty
+    if not graph["nodes"]:
+        _full_graph_cached.cache_clear()
+    return graph
+
+
+full_graph.cache_clear = _full_graph_cached.cache_clear  # type: ignore[attr-defined]
 
 
 def build_retrieval_artifacts(candidates: list[str]) -> RetrievalArtifacts:

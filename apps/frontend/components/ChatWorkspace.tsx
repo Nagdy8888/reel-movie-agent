@@ -24,6 +24,8 @@ const CHAT_PANE_MIN_WIDTH = 320;
 const CHAT_PANE_MAX_WIDTH = 720;
 const CHAT_PANE_DEFAULT_WIDTH = 440;
 const CHAT_PANE_WIDTH_STORAGE_KEY = "reel-chat-pane-width";
+const FULL_GRAPH_LOAD_ATTEMPTS = 3;
+const FULL_GRAPH_RETRY_DELAY_MS = 1_000;
 
 function clampChatPaneWidth(width: number): number {
   return Math.min(CHAT_PANE_MAX_WIDTH, Math.max(CHAT_PANE_MIN_WIDTH, width));
@@ -59,13 +61,16 @@ export function ChatWorkspace() {
   const [fullGraph, setFullGraph] = useState<GraphData>({ nodes: [], links: [] });
   const [graphLoading, setGraphLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [chatPaneWidth, setChatPaneWidth] = useState(() => {
-    if (typeof window === "undefined") return CHAT_PANE_DEFAULT_WIDTH;
+  const [chatPaneWidth, setChatPaneWidth] = useState(CHAT_PANE_DEFAULT_WIDTH);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
     const saved = window.localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY);
     const width = Number(saved);
-    return Number.isFinite(width) ? clampChatPaneWidth(width) : CHAT_PANE_DEFAULT_WIDTH;
-  });
-  const abortRef = useRef<AbortController | null>(null);
+    if (Number.isFinite(width)) {
+      setChatPaneWidth(clampChatPaneWidth(width));
+    }
+  }, []);
 
   const refreshChats = useCallback(async (token: string) => {
     try {
@@ -121,18 +126,30 @@ export function ChatWorkspace() {
     queueMicrotask(() => {
       if (!cancelled) setGraphLoading(true);
     });
-    getFullGraph(accessToken)
-      .then((loadedGraph) => {
-        if (!cancelled) setFullGraph(loadedGraph);
-      })
-      .catch((err) => {
-        if (err instanceof Error && err.message === "unauthorized") {
-          router.replace("/login");
+    const loadGraph = async () => {
+      try {
+        for (let attempt = 0; attempt < FULL_GRAPH_LOAD_ATTEMPTS; attempt += 1) {
+          try {
+            const loadedGraph = await getFullGraph(accessToken);
+            if (loadedGraph.nodes.length > 0 || attempt === FULL_GRAPH_LOAD_ATTEMPTS - 1) {
+              if (!cancelled) setFullGraph(loadedGraph);
+              return;
+            }
+          } catch (err) {
+            if (err instanceof Error && err.message === "unauthorized") {
+              router.replace("/login");
+              return;
+            }
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, FULL_GRAPH_RETRY_DELAY_MS));
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setGraphLoading(false);
-      });
+      }
+    };
+
+    void loadGraph();
     return () => {
       cancelled = true;
     };

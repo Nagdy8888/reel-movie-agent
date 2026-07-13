@@ -120,7 +120,9 @@ test("complete graph stays responsive under WebGL worker layout", async ({ page 
 
   const started = Date.now();
   await page.goto("http://localhost:3000/chat");
-  await expect(page.getByText("48,734 nodes")).toBeAttached({ timeout: 30_000 });
+  await expect(page.getByText("Ask a movie question to build an answer network")).toBeVisible();
+  await page.getByRole("button", { name: "Full network", exact: true }).click();
+  await expect(page.getByText(/48,734 nodes/)).toBeAttached({ timeout: 30_000 });
   await expect(page.locator("canvas").first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("sigma-graph-ready")).toHaveText("48734", {
     timeout: 30_000,
@@ -139,6 +141,10 @@ test("complete graph stays responsive under WebGL worker layout", async ({ page 
 
   await page.locator("canvas.sigma-mouse").hover();
   await page.mouse.wheel(0, -400);
+  const filterStarted = Date.now();
+  await page.getByRole("button", { name: "Keyword", exact: true }).click();
+  await expect(page.getByTestId("sigma-graph-ready")).toHaveText("48734");
+  expect(Date.now() - filterStarted).toBeLessThan(2_000);
   await page.getByRole("button", { name: "Reset view" }).click();
 
   console.log(

@@ -3,10 +3,16 @@ import { SourceCard } from "./SourceCard";
 
 export interface SourcesPanelProps {
   sources: Source[];
+  selectedSourceId: string | null;
+  onSelectSource: (id: string) => void;
 }
 
 /** Right-pane Sources tab — renders cards or an honest empty state. */
-export function SourcesPanel({ sources }: SourcesPanelProps) {
+export function SourcesPanel({
+  sources,
+  selectedSourceId,
+  onSelectSource,
+}: SourcesPanelProps) {
   if (sources.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-md text-center">
@@ -20,7 +26,12 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
   return (
     <div className="h-full overflow-y-auto thin-scrollbar p-md space-y-md">
       {sources.map((source) => (
-        <SourceCard key={source.id} source={source} />
+        <SourceCard
+          key={source.id}
+          source={source}
+          selected={selectedSourceId === source.id}
+          onSelect={onSelectSource}
+        />
       ))}
     </div>
   );

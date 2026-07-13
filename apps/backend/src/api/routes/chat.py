@@ -62,6 +62,8 @@ def _artifacts_from_v3_event(
     graph = data.get("graph")
     if not isinstance(sources, list) or not isinstance(graph, dict):
         return None
+    if not sources and not graph.get("nodes") and not graph.get("links"):
+        return None
     return cast(list[SourceArtifact], sources), cast(GraphArtifact, graph)
 
 
@@ -91,26 +93,19 @@ async def _event_stream(
     yield f"event: meta\ndata: {meta}\n\n"
     parts: list[str] = []
     artifacts_emitted = False
-    initial_context: str | None = None
     last_sources: list[SourceArtifact] = []
     last_graph: GraphArtifact = {"nodes": [], "links": []}
     stream = graph.stream_events(inputs, config, version="v3")
     async for raw in iterate_in_threadpool(stream):
-        if raw.get("method") == "values":
-            data = raw.get("params", {}).get("data")
-            if isinstance(data, dict):
-                context = str(data.get("context", ""))
-                if initial_context is None:
-                    initial_context = context
-                elif not artifacts_emitted and context != initial_context:
-                    artifacts = _artifacts_from_v3_event(raw)
-                    if artifacts is not None:
-                        sources, graph_data = artifacts
-                        last_sources = sources
-                        last_graph = graph_data
-                        yield f"event: sources\ndata: {json.dumps({'sources': sources})}\n\n"
-                        yield f"event: graph\ndata: {json.dumps(graph_data)}\n\n"
-                        artifacts_emitted = True
+        if not artifacts_emitted:
+            artifacts = _artifacts_from_v3_event(raw)
+            if artifacts is not None:
+                sources, graph_data = artifacts
+                last_sources = sources
+                last_graph = graph_data
+                yield f"event: sources\ndata: {json.dumps({'sources': sources})}\n\n"
+                yield f"event: graph\ndata: {json.dumps(graph_data)}\n\n"
+                artifacts_emitted = True
         text = _token_from_v3_event(raw)
         if text:
             parts.append(text)
@@ -125,9 +120,7 @@ async def _event_stream(
         await run_in_threadpool(store.add_message, conversation_id, "assistant", answer)
         await run_in_threadpool(store.touch, conversation_id)
         if is_new_thread:
-            title = await run_in_threadpool(
-                generate_conversation_title, body.message, answer[:400]
-            )
+            title = await run_in_threadpool(generate_conversation_title, body.message, answer[:400])
             await run_in_threadpool(store.update_title, conversation_id, title)
     yield "event: done\ndata: {}\n\n"
 

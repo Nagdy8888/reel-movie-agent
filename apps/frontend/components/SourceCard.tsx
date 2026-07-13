@@ -16,15 +16,27 @@ export interface Source {
 
 export interface SourceCardProps {
   source: Source;
+  selected: boolean;
+  onSelect: (id: string) => void;
 }
 
 /** Render a single source card in the Sources panel. */
-export function SourceCard({ source }: SourceCardProps) {
+export function SourceCard({ source, selected, onSelect }: SourceCardProps) {
   const [posterFailed, setPosterFailed] = useState(false);
   const showPoster = Boolean(source.poster_url) && !posterFailed;
 
   return (
-    <div className="bg-elevated border border-hairline rounded-lg overflow-hidden group hover:border-primary-container/50 transition-colors">
+    <button
+      type="button"
+      onClick={() => onSelect(source.id)}
+      aria-pressed={selected}
+      aria-label={`Show ${source.title} in the graph`}
+      className={`w-full text-left bg-elevated border rounded-lg overflow-hidden group transition-colors ${
+        selected
+          ? "border-primary-container ring-1 ring-primary-container/40"
+          : "border-hairline hover:border-primary-container/50"
+      }`}
+    >
       <div className="h-36 relative w-full overflow-hidden bg-surface-container">
         {showPoster ? (
           <Image
@@ -67,6 +79,6 @@ export function SourceCard({ source }: SourceCardProps) {
           </span>
         ))}
       </div>
-    </div>
+    </button>
   );
 }

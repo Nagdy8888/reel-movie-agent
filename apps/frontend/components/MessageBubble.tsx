@@ -2,6 +2,7 @@ import { MaterialIcon } from "./MaterialIcon";
 import { CitationChip } from "./CitationChip";
 
 export interface Citation {
+  id: string;
   index: number;
   label: string;
 }
@@ -10,10 +11,18 @@ export interface MessageBubbleProps {
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
+  selectedCitationId?: string | null;
+  onCitationSelect?: (id: string) => void;
 }
 
 /** Single chat message bubble (user or assistant). */
-export function MessageBubble({ role, content, citations = [] }: MessageBubbleProps) {
+export function MessageBubble({
+  role,
+  content,
+  citations = [],
+  selectedCitationId = null,
+  onCitationSelect = () => undefined,
+}: MessageBubbleProps) {
   if (role === "user") {
     return (
       <div className="flex justify-end w-full">
@@ -38,7 +47,14 @@ export function MessageBubble({ role, content, citations = [] }: MessageBubblePr
           {citations.length > 0 && (
             <div className="flex flex-wrap gap-sm mt-lg pt-md border-t border-hairline">
               {citations.map((c) => (
-                <CitationChip key={c.index} index={c.index} label={c.label} />
+                <CitationChip
+                  key={`${c.id}-${c.index}`}
+                  id={c.id}
+                  index={c.index}
+                  label={c.label}
+                  selected={selectedCitationId === c.id}
+                  onSelect={onCitationSelect}
+                />
               ))}
             </div>
           )}

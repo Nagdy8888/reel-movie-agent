@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from agents.artifacts import (
     _node_artifact,
+    artifacts_from_movie_ids,
     build_retrieval_artifacts,
     cited_titles_from_answer,
     extract_movie_ids,
@@ -70,65 +71,67 @@ def test_structured_graph_facts_hydrate_sources_and_highlights(monkeypatch) -> N
     """Text2Cypher rows should create source cards and graph highlights."""
     captured_ids: list[list[int]] = []
 
-    def fake_sources(movie_ids: list[int]):
-        """Return a canonical source for captured IDs."""
-        captured_ids.append(movie_ids)
-        return [
-            {
-                "id": "movie:13",
-                "title": "Forrest Gump",
-                "subtitle": "Life is like a box of chocolates",
-                "year": "1994",
-                "poster_url": "https://image.tmdb.org/t/p/w500/forrest.jpg",
-                "tags": ["Robert Zemeckis", "Tom Hanks"],
-            }
-        ]
-
-    def fake_graph(movie_ids: list[int]):
-        """Return a movie node for captured IDs."""
+    def fake_artifacts(movie_ids: list[int]):
+        """Return canonical sources and graph data for captured IDs."""
         captured_ids.append(movie_ids)
         return {
-            "nodes": [{"id": "movie:13", "label": "Forrest Gump", "type": "Movie"}],
-            "links": [],
+            "sources": [
+                {
+                    "id": "movie:13",
+                    "title": "Forrest Gump",
+                    "subtitle": "Life is like a box of chocolates",
+                    "year": "1994",
+                    "poster_url": "https://image.tmdb.org/t/p/w500/forrest.jpg",
+                    "tags": ["Robert Zemeckis", "Tom Hanks"],
+                }
+            ],
+            "graph": {
+                "nodes": [{"id": "movie:13", "label": "Forrest Gump", "type": "Movie"}],
+                "links": [],
+            },
         }
 
-    monkeypatch.setattr("agents.artifacts.sources_from_movie_ids", fake_sources)
-    monkeypatch.setattr("agents.artifacts.graph_from_movie_ids", fake_graph)
+    monkeypatch.setattr("agents.artifacts.artifacts_from_movie_ids", fake_artifacts)
 
     artifacts = build_retrieval_artifacts(
         ["[Graph facts]\n{'m.tmdbId': 13, 'm.title': 'Forrest Gump', 'm.year': 1994}"]
     )
 
-    assert captured_ids == [[13], [13]]
+    assert captured_ids == [[13]]
     assert artifacts["sources"][0]["id"] == "movie:13"
     assert artifacts["graph"]["nodes"][0]["id"] == "movie:13"
 
 
 def test_title_only_graph_facts_resolve_stable_ids(monkeypatch) -> None:
     """Title-only Text2Cypher output should be resolved before artifacts load."""
-    monkeypatch.setattr("agents.artifacts._resolve_movie_ids", lambda titles: [13])
-    monkeypatch.setattr(
-        "agents.artifacts.sources_from_movie_ids",
-        lambda movie_ids: [
-            {
-                "id": f"movie:{movie_ids[0]}",
-                "title": "Forrest Gump",
-                "subtitle": None,
-                "year": "1994",
-                "poster_url": None,
-                "tags": [],
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        "agents.artifacts.graph_from_movie_ids",
-        lambda movie_ids: {
-            "nodes": [
-                {"id": f"movie:{movie_ids[0]}", "label": "Forrest Gump", "type": "Movie"}
+
+    def fake_artifacts(movie_ids: list[int]):
+        """Return combined artifacts for the resolved movie ID."""
+        return {
+            "sources": [
+                {
+                    "id": f"movie:{movie_ids[0]}",
+                    "title": "Forrest Gump",
+                    "subtitle": None,
+                    "year": "1994",
+                    "poster_url": None,
+                    "tags": [],
+                }
             ],
-            "links": [],
-        },
-    )
+            "graph": {
+                "nodes": [
+                    {
+                        "id": f"movie:{movie_ids[0]}",
+                        "label": "Forrest Gump",
+                        "type": "Movie",
+                    }
+                ],
+                "links": [],
+            },
+        }
+
+    monkeypatch.setattr("agents.artifacts._resolve_movie_ids", lambda titles: [13])
+    monkeypatch.setattr("agents.artifacts.artifacts_from_movie_ids", fake_artifacts)
 
     artifacts = build_retrieval_artifacts(
         ["[Graph facts]\n{'m.title': 'Forrest Gump', 'm.year': 1994}"]
@@ -136,6 +139,89 @@ def test_title_only_graph_facts_resolve_stable_ids(monkeypatch) -> None:
 
     assert artifacts["sources"][0]["id"] == "movie:13"
     assert artifacts["graph"]["nodes"][0]["id"] == "movie:13"
+
+
+def test_artifacts_from_movie_ids_uses_one_read_query(monkeypatch) -> None:
+    """One read query should hydrate both source cards and graph neighbors."""
+    query_calls: list[list[int]] = []
+
+    class FakeTransaction:
+        """Transaction stub returning one movie-neighbor row."""
+
+        def run(self, query: str, **params):
+            """Capture the bounded IDs and return combined artifact fields."""
+            assert "neighbor_labels" in query
+            query_calls.append(params["movie_ids"])
+            return [
+                {
+                    "tmdb_id": 13,
+                    "title": "Forrest Gump",
+                    "year": 1994,
+                    "tagline": "Life is like a box of chocolates",
+                    "poster_url": "https://image.tmdb.org/forrest.jpg",
+                    "directors": ["Robert Zemeckis"],
+                    "cast": ["Tom Hanks"],
+                    "neighbor_labels": ["Person"],
+                    "neighbor_tmdb_id": 31,
+                    "neighbor_title": None,
+                    "neighbor_name": "Tom Hanks",
+                    "rel_type": "ACTED_IN",
+                    "movie_is_source": False,
+                }
+            ]
+
+    class FakeSession:
+        """Context manager stub for a read-only Neo4j session."""
+
+        def __enter__(self):
+            """Return this fake session."""
+            return self
+
+        def __exit__(self, *_exc_info) -> None:
+            """Close the fake session."""
+
+        def execute_read(self, callback):
+            """Execute the callback once."""
+            return callback(FakeTransaction())
+
+    class FakeDriver:
+        """Driver stub exposing the fake session."""
+
+        def session(self, *, database: str):
+            """Return a fake session for the configured database."""
+            assert database == "neo4j"
+            return FakeSession()
+
+    monkeypatch.setattr(
+        "agents.artifacts.get_settings",
+        lambda: SimpleNamespace(neo4j_database="neo4j"),
+    )
+    monkeypatch.setattr("agents.artifacts.get_neo4j_driver", lambda: FakeDriver())
+
+    artifacts = artifacts_from_movie_ids([13])
+
+    assert query_calls == [[13]]
+    assert artifacts["sources"] == [
+        {
+            "id": "movie:13",
+            "title": "Forrest Gump",
+            "subtitle": "Life is like a box of chocolates",
+            "year": "1994",
+            "poster_url": "https://image.tmdb.org/forrest.jpg",
+            "tags": ["Robert Zemeckis", "Tom Hanks"],
+        }
+    ]
+    assert {node["id"] for node in artifacts["graph"]["nodes"]} == {
+        "movie:13",
+        "person:31",
+    }
+    assert artifacts["graph"]["links"] == [
+        {
+            "source": "person:31",
+            "target": "movie:13",
+            "label": "Acted In",
+        }
+    ]
 
 
 def test_full_graph_normalizes_neo4j_rows(monkeypatch) -> None:

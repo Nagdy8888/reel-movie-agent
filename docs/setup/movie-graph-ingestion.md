@@ -76,11 +76,17 @@ MATCH ()-[r]->() RETURN type(r), count(r) ORDER BY type(r);
 SHOW INDEXES YIELD name, type, state, properties, options RETURN *;
 ```
 
-The frontend requests the authenticated complete graph once. FastAPI compresses
-the JSON response, Sigma.js renders it with WebGL, and ForceAtlas2 runs in a Web
-Worker so layout does not block the browser's main thread.
+The frontend starts with the focused graph artifact streamed for the current
+answer. It does not request the complete graph during workspace startup.
+Selecting **Full Network** requests the authenticated complete graph once.
+FastAPI compresses the JSON response, Sigma.js renders it with WebGL, and
+ForceAtlas2 runs in a Web Worker so layout does not block the browser's main
+thread. Category visibility is applied with render reducers, so toggling a
+category does not rebuild the Graphology graph or restart layout.
 
 Run `pnpm --dir apps/frontend benchmark:graph` to repeat the complete-graph
-browser check. The implementation benchmark rendered 48,734 nodes and 136,709
-links in 5.98 seconds in headless Edge; a 100 ms responsiveness probe completed
-in 144 ms while worker layout was active, and pan/zoom/reset remained usable.
+browser check; the benchmark explicitly opens Full Network before measuring.
+The focused-first implementation rendered 48,734 nodes and 136,709 links in
+6.28–7.31 seconds across headless Edge runs; a 100 ms responsiveness probe
+completed in 103–403 ms while worker layout was active. The benchmark also verifies that
+pan/zoom/reset work and category changes keep the loaded graph instance ready.

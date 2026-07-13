@@ -204,7 +204,7 @@ RETURN position, m.tmdbId AS tmdb_id
 ORDER BY position, m.tmdbId
 """
 
-_SOURCE_QUERY = """
+_ARTIFACT_QUERY = """
 UNWIND range(0, size($movie_ids) - 1) AS position
 WITH position, $movie_ids[position] AS movie_id
 MATCH (m:Movie {tmdbId: movie_id})
@@ -217,6 +217,10 @@ CALL (m) {
     OPTIONAL MATCH (d:Person)-[:DIRECTED]->(m)
     RETURN collect(DISTINCT d.name)[0..2] AS directors
 }
+OPTIONAL MATCH (m)-[r]-(neighbor)
+WHERE type(r) IN [
+    'ACTED_IN', 'DIRECTED', 'PRODUCED', 'WROTE', 'IN_GENRE', 'HAS_KEYWORD'
+]
 RETURN position,
        m.tmdbId AS tmdb_id,
        m.title AS title,
@@ -224,7 +228,13 @@ RETURN position,
        m.tagline AS tagline,
        m.posterUrl AS poster_url,
        cast,
-       directors
+       directors,
+       labels(neighbor) AS neighbor_labels,
+       neighbor.tmdbId AS neighbor_tmdb_id,
+       neighbor.title AS neighbor_title,
+       neighbor.name AS neighbor_name,
+       type(r) AS rel_type,
+       CASE WHEN r IS NULL THEN null ELSE startNode(r) = m END AS movie_is_source
 ORDER BY position
 """
 
@@ -255,82 +265,6 @@ def _resolve_movie_ids(titles: list[str]) -> list[int]:
     except Exception:
         return []
 
-
-def sources_from_movie_ids(movie_ids: list[int]) -> list[SourceArtifact]:
-    """Load canonical source cards for stable TMDB movie IDs.
-
-    Args:
-        movie_ids: Movie IDs parsed or resolved from retrieval candidates.
-
-    Returns:
-        Source cards in candidate order, or an empty list on Neo4j failure.
-    """
-    if not movie_ids:
-        return []
-    settings = get_settings()
-    driver = get_neo4j_driver()
-
-    def _read(tx: neo4j.ManagedTransaction) -> list[dict[str, Any]]:
-        """Load source metadata inside a managed read transaction."""
-        result = tx.run(_SOURCE_QUERY, movie_ids=movie_ids[:_MAX_GRAPH_MOVIES])
-        return [dict(record) for record in result]
-
-    try:
-        with driver.session(database=settings.neo4j_database) as session:
-            rows = session.execute_read(_read)
-    except Exception:
-        return []
-
-    sources: list[SourceArtifact] = []
-    for row in rows:
-        movie_id = row.get("tmdb_id")
-        title = str(row.get("title") or "").strip()
-        if not isinstance(movie_id, int) or not title:
-            continue
-        tags: list[str] = []
-        seen_tags: set[str] = set()
-        for name in [*(row.get("directors") or []), *(row.get("cast") or [])]:
-            tag = str(name or "").strip()
-            key = tag.casefold()
-            if not tag or key in seen_tags:
-                continue
-            seen_tags.add(key)
-            tags.append(tag)
-            if len(tags) >= _MAX_SOURCE_TAGS:
-                break
-        year = row.get("year")
-        sources.append(
-            SourceArtifact(
-                id=_movie_id(movie_id),
-                title=title,
-                subtitle=str(row["tagline"]).strip() if row.get("tagline") else None,
-                year=str(year) if isinstance(year, int) else None,
-                poster_url=(
-                    str(row["poster_url"]).strip() if row.get("poster_url") else None
-                ),
-                tags=tags,
-            )
-        )
-    return sources
-
-
-_GRAPH_QUERY = """
-UNWIND $movie_ids AS movie_id
-MATCH (m:Movie {tmdbId: movie_id})
-OPTIONAL MATCH (m)-[r]-(neighbor)
-WHERE type(r) IN [
-    'ACTED_IN', 'DIRECTED', 'PRODUCED', 'WROTE', 'IN_GENRE', 'HAS_KEYWORD'
-]
-RETURN m.tmdbId AS movie_tmdb_id,
-       m.title AS movie_title,
-       m.released AS movie_year,
-       labels(neighbor) AS neighbor_labels,
-       neighbor.tmdbId AS neighbor_tmdb_id,
-       neighbor.title AS neighbor_title,
-       neighbor.name AS neighbor_name,
-       type(r) AS rel_type,
-       CASE WHEN r IS NULL THEN null ELSE startNode(r) = m END AS movie_is_source
-"""
 
 _FULL_GRAPH_RELATIONSHIPS = [
     "ACTED_IN",
@@ -408,42 +342,69 @@ def _node_artifact(
     return None
 
 
-def graph_from_movie_ids(movie_ids: list[int]) -> GraphArtifact:
-    """Load a read-only graph neighborhood for the given TMDB movie IDs.
+def artifacts_from_movie_ids(movie_ids: list[int]) -> RetrievalArtifacts:
+    """Load source cards and graph neighborhoods in one read-only query.
 
     Args:
-        movie_ids: Stable TMDB movie IDs to expand in Neo4j.
+        movie_ids: Stable TMDB movie IDs to hydrate and expand in Neo4j.
 
     Returns:
-        Nodes and links suitable for the graph panel. Returns an empty graph
+        Source cards and graph data for the focused answer view. Both are empty
         when Neo4j is unavailable or no rows match.
     """
     empty: GraphArtifact = {"nodes": [], "links": []}
     if not movie_ids:
-        return empty
+        return RetrievalArtifacts(sources=[], graph=empty)
 
     settings = get_settings()
     driver = get_neo4j_driver()
+    sources: dict[str, SourceArtifact] = {}
     nodes: dict[str, GraphNodeArtifact] = {}
     links: list[GraphLinkArtifact] = []
     link_keys: set[str] = set()
 
     def _read(tx: neo4j.ManagedTransaction) -> list[dict[str, Any]]:
-        """Run the neighbourhood query inside a read transaction."""
-        result = tx.run(_GRAPH_QUERY, movie_ids=movie_ids[:_MAX_GRAPH_MOVIES])
+        """Hydrate source metadata and neighborhoods in one transaction."""
+        result = tx.run(_ARTIFACT_QUERY, movie_ids=movie_ids[:_MAX_GRAPH_MOVIES])
         return [dict(record) for record in result]
 
     try:
         with driver.session(database=settings.neo4j_database) as session:
             rows = session.execute_read(_read)
     except Exception:
-        return empty
+        return RetrievalArtifacts(sources=[], graph=empty)
 
     for row in rows:
+        movie_id = row.get("tmdb_id")
+        movie_title = str(row.get("title") or "").strip()
+        if not isinstance(movie_id, int) or not movie_title:
+            continue
+        movie_node_id = _movie_id(movie_id)
+        if movie_node_id not in sources:
+            tags: list[str] = []
+            seen_tags: set[str] = set()
+            for name in [*(row.get("directors") or []), *(row.get("cast") or [])]:
+                tag = str(name or "").strip()
+                key = tag.casefold()
+                if not tag or key in seen_tags:
+                    continue
+                seen_tags.add(key)
+                tags.append(tag)
+                if len(tags) >= _MAX_SOURCE_TAGS:
+                    break
+            year = row.get("year")
+            sources[movie_node_id] = SourceArtifact(
+                id=movie_node_id,
+                title=movie_title,
+                subtitle=str(row["tagline"]).strip() if row.get("tagline") else None,
+                year=str(year) if isinstance(year, int) else None,
+                poster_url=(str(row["poster_url"]).strip() if row.get("poster_url") else None),
+                tags=tags,
+            )
         movie = _node_artifact(
             ["Movie"],
-            row.get("movie_tmdb_id"),
-            row.get("movie_title"),
+            movie_id,
+            movie_title,
             None,
         )
         if movie is None:
@@ -475,7 +436,10 @@ def graph_from_movie_ids(movie_ids: list[int]) -> GraphArtifact:
             )
         )
 
-    return GraphArtifact(nodes=list(nodes.values()), links=links)
+    return RetrievalArtifacts(
+        sources=list(sources.values()),
+        graph=GraphArtifact(nodes=list(nodes.values()), links=links),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -593,11 +557,11 @@ def build_retrieval_artifacts(candidates: list[str]) -> RetrievalArtifacts:
             if movie_id not in seen_ids and len(movie_ids) < _MAX_GRAPH_MOVIES:
                 movie_ids.append(movie_id)
                 seen_ids.add(movie_id)
-    sources = sources_from_movie_ids(movie_ids)
+    artifacts = artifacts_from_movie_ids(movie_ids)
+    sources = artifacts["sources"]
     if not sources:
         sources = sources_from_candidates(candidates)
-    graph = graph_from_movie_ids(movie_ids)
-    return RetrievalArtifacts(sources=sources, graph=graph)
+    return RetrievalArtifacts(sources=sources, graph=artifacts["graph"])
 
 
 def cited_titles_from_answer(answer: str, available_titles: list[str]) -> list[str]:

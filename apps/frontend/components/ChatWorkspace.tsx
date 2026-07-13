@@ -14,6 +14,7 @@ import {
   type SourceSummary,
 } from "@/lib/api";
 import { groupChatsByRecency } from "@/lib/groupChats";
+import type { GraphMode } from "@/lib/graphView";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatThread, type ChatMessage } from "@/components/ChatThread";
 import { ChatInput } from "@/components/ChatInput";
@@ -26,6 +27,7 @@ const CHAT_PANE_DEFAULT_WIDTH = 440;
 const CHAT_PANE_WIDTH_STORAGE_KEY = "reel-chat-pane-width";
 const FULL_GRAPH_LOAD_ATTEMPTS = 3;
 const FULL_GRAPH_RETRY_DELAY_MS = 1_000;
+type FullGraphStatus = "idle" | "loading" | "ready" | "error";
 
 function clampChatPaneWidth(width: number): number {
   return Math.min(CHAT_PANE_MAX_WIDTH, Math.max(CHAT_PANE_MIN_WIDTH, width));
@@ -59,7 +61,9 @@ export function ChatWorkspace() {
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [graph, setGraph] = useState<GraphData>({ nodes: [], links: [] });
   const [fullGraph, setFullGraph] = useState<GraphData>({ nodes: [], links: [] });
-  const [graphLoading, setGraphLoading] = useState(false);
+  const [fullGraphStatus, setFullGraphStatus] = useState<FullGraphStatus>("idle");
+  const [graphMode, setGraphMode] = useState<GraphMode>("answer");
+  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [chatPaneWidth, setChatPaneWidth] = useState(CHAT_PANE_DEFAULT_WIDTH);
   const abortRef = useRef<AbortController | null>(null);
@@ -118,40 +122,47 @@ export function ChatWorkspace() {
     };
   }, [router, refreshChats]);
 
-  useEffect(() => {
-    if (!accessToken) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) setGraphLoading(true);
-    });
-    const loadGraph = async () => {
+  const loadFullGraph = useCallback(async () => {
+    if (!accessToken || fullGraphStatus === "loading" || fullGraphStatus === "ready") return;
+    setFullGraphStatus("loading");
+    for (let attempt = 0; attempt < FULL_GRAPH_LOAD_ATTEMPTS; attempt += 1) {
       try {
-        for (let attempt = 0; attempt < FULL_GRAPH_LOAD_ATTEMPTS; attempt += 1) {
-          try {
-            const loadedGraph = await getFullGraph(accessToken);
-            if (loadedGraph.nodes.length > 0 || attempt === FULL_GRAPH_LOAD_ATTEMPTS - 1) {
-              if (!cancelled) setFullGraph(loadedGraph);
-              return;
-            }
-          } catch (err) {
-            if (err instanceof Error && err.message === "unauthorized") {
-              router.replace("/login");
-              return;
-            }
-          }
-
-          await new Promise((resolve) => window.setTimeout(resolve, FULL_GRAPH_RETRY_DELAY_MS));
+        const loadedGraph = await getFullGraph(accessToken);
+        if (loadedGraph.nodes.length > 0) {
+          setFullGraph(loadedGraph);
+          setFullGraphStatus("ready");
+          return;
         }
-      } finally {
-        if (!cancelled) setGraphLoading(false);
+      } catch (err) {
+        if (err instanceof Error && err.message === "unauthorized") {
+          router.replace("/login");
+          return;
+        }
       }
-    };
+      if (attempt < FULL_GRAPH_LOAD_ATTEMPTS - 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, FULL_GRAPH_RETRY_DELAY_MS));
+      }
+    }
+    setFullGraphStatus("error");
+  }, [accessToken, fullGraphStatus, router]);
 
-    void loadGraph();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, router]);
+  const handleGraphModeChange = useCallback(
+    (mode: GraphMode) => {
+      setGraphMode(mode);
+      setSelectedGraphNodeId(null);
+      if (mode === "full") void loadFullGraph();
+    },
+    [loadFullGraph],
+  );
+
+  const handleGraphNodeSelect = useCallback((nodeId: string | null) => {
+    setSelectedGraphNodeId(nodeId);
+  }, []);
+
+  const handleCitationSelect = useCallback((nodeId: string) => {
+    setGraphMode("answer");
+    setSelectedGraphNodeId(nodeId);
+  }, []);
 
   const handleNewDiscovery = () => {
     abortRef.current?.abort();
@@ -165,6 +176,8 @@ export function ChatWorkspace() {
     setError(null);
     setSources([]);
     setGraph({ nodes: [], links: [] });
+    setGraphMode("answer");
+    setSelectedGraphNodeId(null);
   };
 
   const handleSelectConversation = async (id: string) => {
@@ -173,6 +186,8 @@ export function ChatWorkspace() {
     setError(null);
     setSources([]);
     setGraph({ nodes: [], links: [] });
+    setGraphMode("answer");
+    setSelectedGraphNodeId(null);
     try {
       const detail = await getChat(id, accessToken);
       setActiveConversationId(detail.id);
@@ -204,6 +219,8 @@ export function ChatWorkspace() {
     setInput("");
     setSources([]);
     setGraph({ nodes: [], links: [] });
+    setGraphMode("answer");
+    setSelectedGraphNodeId(null);
     const userMsgId = `user-${Date.now()}`;
     const assistantMsgId = `assistant-${Date.now()}`;
     setMessages((prev) => [...prev, { id: userMsgId, role: "user", content: text }]);
@@ -222,6 +239,7 @@ export function ChatWorkspace() {
 
     const citationsFromSources = (items: SourceSummary[]) =>
       items.map((source, index) => ({
+        id: source.id,
         index: index + 1,
         label: source.title,
       }));
@@ -247,6 +265,8 @@ export function ChatWorkspace() {
           }
         } else if (event.type === "graph") {
           setGraph(event.graph);
+          setGraphMode("answer");
+          setSelectedGraphNodeId(null);
         } else if (event.type === "token") {
           if (!gotFirstToken) {
             gotFirstToken = true;
@@ -348,7 +368,20 @@ export function ChatWorkspace() {
         onNewDiscovery={handleNewDiscovery}
         onSelectConversation={handleSelectConversation}
       />
-      <GraphCanvas fullGraph={fullGraph} highlight={graph} sources={sources} loading={graphLoading} />
+      <GraphCanvas
+        answerGraph={graph}
+        fullGraph={fullGraph}
+        fullGraphStatus={fullGraphStatus}
+        mode={graphMode}
+        sources={sources}
+        selectedNodeId={selectedGraphNodeId}
+        onModeChange={handleGraphModeChange}
+        onRetryFullGraph={() => {
+          setFullGraphStatus("idle");
+          queueMicrotask(() => void loadFullGraph());
+        }}
+        onSelectNode={handleGraphNodeSelect}
+      />
       <div
         role="separator"
         aria-label="Resize chat panel"
@@ -386,7 +419,12 @@ export function ChatWorkspace() {
             {error}
           </div>
         )}
-        <ChatThread messages={messages} isThinking={isThinking} />
+        <ChatThread
+          messages={messages}
+          isThinking={isThinking}
+          selectedCitationId={selectedGraphNodeId}
+          onCitationSelect={handleCitationSelect}
+        />
         <ChatInput
           value={input}
           onChange={setInput}

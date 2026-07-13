@@ -43,6 +43,64 @@ def test_chat_streams_tokens_and_persists(auth_client: TestClient, mock_store: M
     mock_store.update_title.assert_called_once_with(conv_id, "Tom Hanks Movies")
 
 
+def test_chat_emits_artifacts_from_first_valid_values_event(
+    auth_client: TestClient,
+    mock_graph: MagicMock,
+) -> None:
+    """Artifacts should not depend on a preceding context-only values event."""
+
+    def _stream_events(_inputs, _config, *, version):
+        """Yield artifacts immediately, followed by one answer token."""
+        del version
+        yield {
+            "method": "values",
+            "params": {"data": {"sources": [], "graph": {"nodes": [], "links": []}}},
+        }
+        yield {
+            "method": "values",
+            "params": {
+                "data": {
+                    "context": "[Graph facts]\nThe Matrix",
+                    "sources": [
+                        {
+                            "id": "movie:603",
+                            "title": "The Matrix",
+                            "subtitle": None,
+                            "year": "1999",
+                            "poster_url": None,
+                            "tags": ["Keanu Reeves"],
+                        }
+                    ],
+                    "graph": {
+                        "nodes": [{"id": "movie:603", "label": "The Matrix", "type": "Movie"}],
+                        "links": [],
+                    },
+                }
+            },
+        }
+        yield {
+            "method": "messages",
+            "params": {
+                "data": (
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": "Watch The Matrix."},
+                    },
+                    {"langgraph_node": "generate"},
+                )
+            },
+        }
+
+    mock_graph.stream_events = _stream_events
+
+    response = auth_client.post("/chat", json={"message": "Suggest a film"})
+
+    assert response.status_code == 200
+    assert response.text.count("event: sources") == 1
+    assert response.text.count("event: graph") == 1
+    assert '"movie:603"' in response.text
+
+
 def test_chat_rejects_foreign_thread(auth_client: TestClient, mock_store: MagicMock) -> None:
     """POST /chat returns 403 when thread_id belongs to another user."""
     mock_store.upsert_conversation.return_value = None

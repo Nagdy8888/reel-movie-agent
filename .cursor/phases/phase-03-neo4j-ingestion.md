@@ -2,9 +2,17 @@
 
 ## Objective
 
-Stand up **Neo4j in Docker**, load the **sample movies dataset**, and build a **vector index** over movie plot/tagline embeddings so the agent (Phase 4) can do both structured (Cypher) and semantic (vector) retrieval. Also document how to create a **read-only** access path for the agent.
+Stand up **Neo4j**, load the deterministic **top 5,000 Kaggle movies**, and
+build vector and full-text indexes so the agent (Phase 4) can do structured and
+semantic retrieval. Also document how to create a **read-only** access path for
+the agent.
 
-At the end you can open Neo4j Browser, see `Movie`/`Person`/`Genre` nodes, and a vector index exists.
+> **Implementation update:** the historical sample-seed snippets below have
+> been superseded by `scripts/build_movies_graph.py`,
+> `ingestion.load_graph`, and `ingestion.build_index`. The live schema uses
+> TMDB IDs, includes Movie/Person/Genre/Keyword nodes, writes in batches, and
+> uses `text-embedding-3-small` at 1,536 dimensions. Follow
+> `docs/setup/movie-graph-ingestion.md` for the current runbook.
 
 ## Prerequisites
 

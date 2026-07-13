@@ -47,7 +47,7 @@ convention = "google"
 asyncio_mode = "auto"
 testpaths = ["apps/agents/tests", "apps/backend/tests"]
 addopts = "--import-mode=importlib"
-pythonpath = ["apps/agents/src", "apps/backend/src"]
+pythonpath = [".", "apps/agents/src", "apps/backend/src"]
 
 [tool.pyright]
 pythonVersion = "3.11"

@@ -1,6 +1,7 @@
 """Pydantic request/response models for the backend API."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -64,7 +65,9 @@ class GraphNodeOut(BaseModel):
 
     id: str = Field(description="Stable node id.")
     label: str = Field(description="Display label.")
-    type: str = Field(description="Node label type, e.g. Movie or Person.")
+    type: Literal["Movie", "Person", "Genre", "Keyword"] = Field(
+        description="Supported movie-graph node label."
+    )
 
 
 class GraphLinkOut(BaseModel):

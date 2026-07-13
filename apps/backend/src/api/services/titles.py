@@ -3,7 +3,6 @@
 import re
 
 from agents.clients import get_utility_llm
-
 from api.prompts.conversation_title import CONVERSATION_TITLE_V1
 
 PLACEHOLDER_TITLE = "New chat"

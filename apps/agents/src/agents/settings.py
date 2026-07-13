@@ -22,7 +22,7 @@ class AgentSettings(BaseSettings):
         default="gpt-4o-mini", description="Chat model used by the agent."
     )
     openai_embed_model: str = Field(
-        default="text-embedding-3-large", description="OpenAI embedding model."
+        default="text-embedding-3-small", description="OpenAI embedding model."
     )
     llm_timeout_seconds: float = Field(default=30.0, description="Per-call LLM timeout in seconds.")
     llm_max_tokens: int = Field(default=1024, description="Maximum tokens per LLM completion.")
@@ -38,7 +38,7 @@ class AgentSettings(BaseSettings):
         description="Neo4j full-text index name used for hybrid seed retrieval.",
     )
     embedding_dimensions: int = Field(
-        default=3072, description="Embedding vector size (text-embedding-3-large=3072)."
+        default=1536, description="Embedding vector size (text-embedding-3-small=1536)."
     )
     retrieval_top_k: int = Field(
         default=5, description="Number of seed nodes each retriever returns."

@@ -65,11 +65,9 @@ export function ChatWorkspace() {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY);
-    const width = Number(saved);
-    if (Number.isFinite(width)) {
-      setChatPaneWidth(clampChatPaneWidth(width));
-    }
+    const savedWidth = Number(window.localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY));
+    if (!Number.isFinite(savedWidth)) return;
+    queueMicrotask(() => setChatPaneWidth(clampChatPaneWidth(savedWidth)));
   }, []);
 
   const refreshChats = useCallback(async (token: string) => {

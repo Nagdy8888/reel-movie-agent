@@ -31,7 +31,7 @@ export interface SourceSummary {
 export interface GraphNode {
   id: string;
   label: string;
-  type: "Movie" | "Person" | string;
+  type: "Movie" | "Person" | "Genre" | "Keyword";
 }
 
 export interface GraphLink {

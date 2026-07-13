@@ -11,8 +11,12 @@
 >   `HybridCypherRetriever`, then graph-expanded.
 > - An **LLM reranker** (non-streaming utility LLM) trims merged candidates
 >   before generation; only the `generate` node streams tokens.
-> - Embeddings are **composed from graph facts** (title + tagline + cast + roles
->   + directors + writers), not just the tagline.
+> - Embeddings are **composed from graph facts** (title, year, overview,
+>   tagline, genres, keywords, cast, directors, and writers), not just the
+>   tagline.
+> - Movie and Person artifacts use stable `movie:<tmdbId>` and
+>   `person:<tmdbId>` IDs. Rich candidate and generation context is bounded to
+>   prevent unexpectedly large prompts.
 >
 > The actual source under `apps/agents/src/agents/` is the source of truth. The
 > code blocks below reflect the original router design and are kept for history.
@@ -310,7 +314,8 @@ Adds `SUPABASE_DB_URL`. Plus all Phase 2/3 vars.
 
 - [ ] `ensure_read_only` raises on a query containing `CREATE`/`DELETE`/etc. and passes a plain `MATCH`.
 - [ ] In Studio, a structured question yields graph facts via robust Text2Cypher (introspected schema + few-shot + self-correction).
-- [ ] A semantic question yields hybrid (vector + full-text) matches, graph-expanded into cast/crew/reviews.
+- [ ] A semantic question yields hybrid (vector + full-text) matches,
+  graph-expanded into overview, genres, keywords, ratings, cast, and crew.
 - [ ] The `retrieve` node runs both retrievers and reranks; the `generate` node is the only text/streaming producer.
 - [ ] With empty/failed retrieval, the answer says it doesn't know (fail-closed) — no fabrication.
 - [ ] `build_checkpointer()`/`build_store()` connect to Supabase Postgres and `.setup()` succeeds.

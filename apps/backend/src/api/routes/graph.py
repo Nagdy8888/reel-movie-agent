@@ -15,4 +15,4 @@ async def get_full_graph(response: Response) -> GraphOut:
     """Return the authenticated user's visible movie knowledge graph."""
     response.headers["Cache-Control"] = "no-store"
     graph_data = await run_in_threadpool(full_graph)
-    return GraphOut(**graph_data)
+    return GraphOut.model_validate(graph_data)

@@ -9,6 +9,11 @@ Wrap the agent in a **FastAPI backend**:
 - Thin routes + DI + `response_model` on every route + structured logging.
 - Dockerized backend service added to `docker-compose.yml`.
 
+> **Implementation update:** the authenticated `GET /graph` route now returns
+> the complete Movie/Person/Genre/Keyword graph using stable IDs. Large JSON
+> responses are compressed by `GZipMiddleware`; the graph snapshot is cached
+> in-process after the first successful Neo4j read.
+
 **Auth, CORS, rate limiting, and security headers are added in Phase 6** — this phase keeps `/chat` open locally so you can test streaming first.
 
 ## Prerequisites

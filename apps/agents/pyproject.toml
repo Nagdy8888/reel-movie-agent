@@ -16,6 +16,7 @@ dependencies = [
   "python-dotenv>=1",
   "tenacity>=9",
   "psycopg[binary]>=3.2",
+  "tiktoken>=0.13.0",
 ]
 
 [build-system]

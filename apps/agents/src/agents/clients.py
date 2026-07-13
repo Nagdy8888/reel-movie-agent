@@ -76,6 +76,7 @@ def get_embedder() -> OpenAIEmbeddings:
     return OpenAIEmbeddings(
         model=settings.openai_embed_model,
         api_key=settings.openai_api_key,
+        timeout=settings.llm_timeout_seconds,
     )
 
 

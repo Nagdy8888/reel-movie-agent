@@ -3,8 +3,10 @@
 from types import SimpleNamespace
 
 from agents.artifacts import (
+    _node_artifact,
     build_retrieval_artifacts,
     cited_titles_from_answer,
+    extract_movie_ids,
     extract_movie_titles,
     filter_artifacts_by_answer,
     full_graph,
@@ -12,7 +14,9 @@ from agents.artifacts import (
 )
 
 _SAMPLE_CHUNK = (
-    'Movie: Forrest Gump (1994) - tagline: "Life is like a box of chocolates"\n'
+    "Movie: Forrest Gump (1994) [TMDB ID: 13]\n"
+    "Tagline: Life is like a box of chocolates\n"
+    "Poster URL: https://image.tmdb.org/t/p/w500/forrest.jpg\n"
     "Cast: Tom Hanks as Forrest Gump; Robin Wright as Jenny Curran\n"
     "Directed by: Robert Zemeckis"
 )
@@ -24,6 +28,25 @@ def test_extract_movie_titles_from_semantic_chunk() -> None:
     assert titles == ["Forrest Gump"]
 
 
+def test_extract_movie_ids_deduplicates_stable_ids() -> None:
+    """Semantic and structured candidates should expose stable TMDB IDs."""
+    ids = extract_movie_ids([_SAMPLE_CHUNK, "{'tmdbId': 13, 'title': 'Forrest Gump'}"])
+    assert ids == [13]
+
+
+def test_tmdb_ids_prevent_duplicate_title_and_person_name_collisions() -> None:
+    """Display-name duplicates should remain distinct graph nodes."""
+    movie_a = _node_artifact(["Movie"], 1, "The Return", None)
+    movie_b = _node_artifact(["Movie"], 2, "The Return", None)
+    person_a = _node_artifact(["Person"], 10, None, "Alex Smith")
+    person_b = _node_artifact(["Person"], 20, None, "Alex Smith")
+
+    assert movie_a is not None and movie_b is not None
+    assert person_a is not None and person_b is not None
+    assert movie_a["id"] != movie_b["id"]
+    assert person_a["id"] != person_b["id"]
+
+
 def test_sources_from_candidates_builds_cards() -> None:
     """Movie neighbourhood chunks become structured source cards."""
     sources = sources_from_candidates([_SAMPLE_CHUNK])
@@ -32,7 +55,8 @@ def test_sources_from_candidates_builds_cards() -> None:
     assert sources[0]["year"] == "1994"
     assert "Tom Hanks" in sources[0]["tags"]
     assert "Robert Zemeckis" in sources[0]["tags"]
-    assert sources[0]["poster_url"] is None or sources[0]["poster_url"].startswith("https://")
+    assert sources[0]["id"] == "movie:13"
+    assert sources[0]["poster_url"] == "https://image.tmdb.org/t/p/w500/forrest.jpg"
 
 
 def test_build_retrieval_artifacts_without_neo4j() -> None:
@@ -40,6 +64,78 @@ def test_build_retrieval_artifacts_without_neo4j() -> None:
     artifacts = build_retrieval_artifacts([_SAMPLE_CHUNK])
     assert len(artifacts["sources"]) == 1
     assert artifacts["graph"]["nodes"] == [] or len(artifacts["graph"]["nodes"]) >= 0
+
+
+def test_structured_graph_facts_hydrate_sources_and_highlights(monkeypatch) -> None:
+    """Text2Cypher rows should create source cards and graph highlights."""
+    captured_ids: list[list[int]] = []
+
+    def fake_sources(movie_ids: list[int]):
+        """Return a canonical source for captured IDs."""
+        captured_ids.append(movie_ids)
+        return [
+            {
+                "id": "movie:13",
+                "title": "Forrest Gump",
+                "subtitle": "Life is like a box of chocolates",
+                "year": "1994",
+                "poster_url": "https://image.tmdb.org/t/p/w500/forrest.jpg",
+                "tags": ["Robert Zemeckis", "Tom Hanks"],
+            }
+        ]
+
+    def fake_graph(movie_ids: list[int]):
+        """Return a movie node for captured IDs."""
+        captured_ids.append(movie_ids)
+        return {
+            "nodes": [{"id": "movie:13", "label": "Forrest Gump", "type": "Movie"}],
+            "links": [],
+        }
+
+    monkeypatch.setattr("agents.artifacts.sources_from_movie_ids", fake_sources)
+    monkeypatch.setattr("agents.artifacts.graph_from_movie_ids", fake_graph)
+
+    artifacts = build_retrieval_artifacts(
+        ["[Graph facts]\n{'m.tmdbId': 13, 'm.title': 'Forrest Gump', 'm.year': 1994}"]
+    )
+
+    assert captured_ids == [[13], [13]]
+    assert artifacts["sources"][0]["id"] == "movie:13"
+    assert artifacts["graph"]["nodes"][0]["id"] == "movie:13"
+
+
+def test_title_only_graph_facts_resolve_stable_ids(monkeypatch) -> None:
+    """Title-only Text2Cypher output should be resolved before artifacts load."""
+    monkeypatch.setattr("agents.artifacts._resolve_movie_ids", lambda titles: [13])
+    monkeypatch.setattr(
+        "agents.artifacts.sources_from_movie_ids",
+        lambda movie_ids: [
+            {
+                "id": f"movie:{movie_ids[0]}",
+                "title": "Forrest Gump",
+                "subtitle": None,
+                "year": "1994",
+                "poster_url": None,
+                "tags": [],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "agents.artifacts.graph_from_movie_ids",
+        lambda movie_ids: {
+            "nodes": [
+                {"id": f"movie:{movie_ids[0]}", "label": "Forrest Gump", "type": "Movie"}
+            ],
+            "links": [],
+        },
+    )
+
+    artifacts = build_retrieval_artifacts(
+        ["[Graph facts]\n{'m.title': 'Forrest Gump', 'm.year': 1994}"]
+    )
+
+    assert artifacts["sources"][0]["id"] == "movie:13"
+    assert artifacts["graph"]["nodes"][0]["id"] == "movie:13"
 
 
 def test_full_graph_normalizes_neo4j_rows(monkeypatch) -> None:
@@ -52,15 +148,33 @@ def test_full_graph_normalizes_neo4j_rows(monkeypatch) -> None:
             """Return deterministic node/link rows for the requested query."""
             if "RETURN labels(n)" in query:
                 return [
-                    {"labels": ["Movie"], "title": "The Matrix", "name": None},
-                    {"labels": ["Person"], "title": None, "name": "Keanu Reeves"},
+                    {
+                        "labels": ["Movie"],
+                        "tmdb_id": 603,
+                        "title": "The Matrix",
+                        "name": None,
+                    },
+                    {
+                        "labels": ["Person"],
+                        "tmdb_id": 6384,
+                        "title": None,
+                        "name": "Keanu Reeves",
+                    },
+                    {
+                        "labels": ["Genre"],
+                        "tmdb_id": None,
+                        "title": None,
+                        "name": "Science Fiction",
+                    },
                 ]
             return [
                 {
                     "source_labels": ["Person"],
+                    "source_tmdb_id": 6384,
                     "source_title": None,
                     "source_name": "Keanu Reeves",
                     "target_labels": ["Movie"],
+                    "target_tmdb_id": 603,
                     "target_title": "The Matrix",
                     "target_name": None,
                     "rel_type": "ACTED_IN",
@@ -99,13 +213,14 @@ def test_full_graph_normalizes_neo4j_rows(monkeypatch) -> None:
     graph = full_graph()
 
     assert graph["nodes"] == [
-        {"id": "movie:the-matrix", "label": "The Matrix", "type": "Movie"},
-        {"id": "person:keanu-reeves", "label": "Keanu Reeves", "type": "Person"},
+        {"id": "movie:603", "label": "The Matrix", "type": "Movie"},
+        {"id": "person:6384", "label": "Keanu Reeves", "type": "Person"},
+        {"id": "genre:science%20fiction", "label": "Science Fiction", "type": "Genre"},
     ]
     assert graph["links"] == [
         {
-            "source": "person:keanu-reeves",
-            "target": "movie:the-matrix",
+            "source": "person:6384",
+            "target": "movie:603",
             "label": "Acted In",
         }
     ]
@@ -135,21 +250,22 @@ def test_filter_artifacts_by_answer_keeps_only_cited_movies() -> None:
     sources = sources_from_candidates([_SAMPLE_CHUNK])
     extra = sources_from_candidates(
         [
-            'Movie: The Matrix (1999) - tagline: "Welcome to the Real World"\n'
+            "Movie: The Matrix (1999) [TMDB ID: 603]\n"
+            "Tagline: Welcome to the Real World\n"
             "Directed by: Lana Wachowski"
         ]
     )
     all_sources = sources + extra
     graph = {
         "nodes": [
-            {"id": "movie-forrest-gump", "label": "Forrest Gump", "type": "Movie"},
-            {"id": "movie-the-matrix", "label": "The Matrix", "type": "Movie"},
-            {"id": "person-tom-hanks", "label": "Tom Hanks", "type": "Person"},
+            {"id": "movie:13", "label": "Forrest Gump", "type": "Movie"},
+            {"id": "movie:603", "label": "The Matrix", "type": "Movie"},
+            {"id": "person:31", "label": "Tom Hanks", "type": "Person"},
         ],
         "links": [
             {
-                "source": "person-tom-hanks",
-                "target": "movie-forrest-gump",
+                "source": "person:31",
+                "target": "movie:13",
                 "label": "Acted In",
             }
         ],
@@ -171,41 +287,42 @@ def test_filter_artifacts_by_answer_uses_graph_movie_titles_for_highlights() -> 
     """Graph highlights include answered movies even when source cards are sparse."""
     sources = sources_from_candidates(
         [
-            'Movie: Cast Away (2000) - tagline: "At the edge of the world"\n'
+            "Movie: Cast Away (2000) [TMDB ID: 8358]\n"
+            "Tagline: At the edge of the world\n"
             "Cast: Tom Hanks as Chuck Noland"
         ]
     )
     graph = {
         "nodes": [
-            {"id": "movie:that-thing-you-do", "label": "That Thing You Do!", "type": "Movie"},
+            {"id": "movie:9591", "label": "That Thing You Do!", "type": "Movie"},
             {
-                "id": "movie:sleepless-in-seattle",
+                "id": "movie:858",
                 "label": "Sleepless in Seattle",
                 "type": "Movie",
             },
-            {"id": "movie:cast-away", "label": "Cast Away", "type": "Movie"},
-            {"id": "movie:you-ve-got-mail", "label": "You've Got Mail", "type": "Movie"},
-            {"id": "person:tom-hanks", "label": "Tom Hanks", "type": "Person"},
+            {"id": "movie:8358", "label": "Cast Away", "type": "Movie"},
+            {"id": "movie:9489", "label": "You've Got Mail", "type": "Movie"},
+            {"id": "person:31", "label": "Tom Hanks", "type": "Person"},
         ],
         "links": [
             {
-                "source": "person:tom-hanks",
-                "target": "movie:that-thing-you-do",
+                "source": "person:31",
+                "target": "movie:9591",
                 "label": "Acted In",
             },
             {
-                "source": "person:tom-hanks",
-                "target": "movie:sleepless-in-seattle",
+                "source": "person:31",
+                "target": "movie:858",
                 "label": "Acted In",
             },
             {
-                "source": "person:tom-hanks",
-                "target": "movie:cast-away",
+                "source": "person:31",
+                "target": "movie:8358",
                 "label": "Acted In",
             },
             {
-                "source": "person:tom-hanks",
-                "target": "movie:you-ve-got-mail",
+                "source": "person:31",
+                "target": "movie:9489",
                 "label": "Acted In",
             },
         ],
@@ -229,8 +346,8 @@ def test_filter_artifacts_by_answer_uses_graph_movie_titles_for_highlights() -> 
         "Tom Hanks",
     }
     assert {link["target"] for link in filtered["graph"]["links"]} == {
-        "movie:that-thing-you-do",
-        "movie:sleepless-in-seattle",
-        "movie:cast-away",
-        "movie:you-ve-got-mail",
+        "movie:9591",
+        "movie:858",
+        "movie:8358",
+        "movie:9489",
     }

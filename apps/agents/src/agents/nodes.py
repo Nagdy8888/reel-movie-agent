@@ -1,5 +1,7 @@
 """Nodes for the deterministic hybrid GraphRAG Reel agent."""
 
+from typing import Any, cast
+
 from langchain_core.messages import AIMessage, SystemMessage
 
 from agents.artifacts import build_retrieval_artifacts
@@ -19,6 +21,7 @@ from agents.tools import (
 )
 
 VALID_INTENTS = ("factual", "recommend", "chitchat")
+MAX_GENERATION_CONTEXT_CHARS = 14_000
 
 
 def _latest_question(state: AgentState) -> str:
@@ -108,9 +111,9 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
 
     artifacts = build_retrieval_artifacts(candidates)
     return {
-        "context": "\n\n".join(candidates),
-        "sources": artifacts["sources"],
-        "graph": artifacts["graph"],
+        "context": "\n\n".join(candidates)[:MAX_GENERATION_CONTEXT_CHARS],
+        "sources": cast(list[dict[str, Any]], artifacts["sources"]),
+        "graph": cast(dict[str, Any], artifacts["graph"]),
         "errors": errors,
     }
 

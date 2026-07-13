@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -9,7 +10,11 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
-from agents.artifacts import filter_artifacts_by_answer
+from agents.artifacts import (
+    GraphArtifact,
+    SourceArtifact,
+    filter_artifacts_by_answer,
+)
 from api.deps import ChatStoreDep, GraphDep, UserDep
 from api.limiter import limiter
 from api.schemas import ChatRequest
@@ -44,7 +49,9 @@ def _token_from_v3_event(raw: dict) -> str:
     return str(delta.get("text", ""))
 
 
-def _artifacts_from_v3_event(raw: dict) -> tuple[list[dict], dict] | None:
+def _artifacts_from_v3_event(
+    raw: dict,
+) -> tuple[list[SourceArtifact], GraphArtifact] | None:
     """Extract sources/graph from a LangGraph v3 ``values`` event after retrieve."""
     if raw.get("method") != "values":
         return None
@@ -55,7 +62,7 @@ def _artifacts_from_v3_event(raw: dict) -> tuple[list[dict], dict] | None:
     graph = data.get("graph")
     if not isinstance(sources, list) or not isinstance(graph, dict):
         return None
-    return sources, graph
+    return cast(list[SourceArtifact], sources), cast(GraphArtifact, graph)
 
 
 async def _event_stream(
@@ -85,8 +92,8 @@ async def _event_stream(
     parts: list[str] = []
     artifacts_emitted = False
     initial_context: str | None = None
-    last_sources: list[dict] = []
-    last_graph: dict = {"nodes": [], "links": []}
+    last_sources: list[SourceArtifact] = []
+    last_graph: GraphArtifact = {"nodes": [], "links": []}
     stream = graph.stream_events(inputs, config, version="v3")
     async for raw in iterate_in_threadpool(stream):
         if raw.get("method") == "values":

@@ -58,9 +58,9 @@ export function SourceCard({ source }: SourceCardProps) {
         </p>
       )}
       <div className="p-sm flex flex-wrap gap-xs">
-        {source.tags.map((tag) => (
+        {source.tags.map((tag, index) => (
           <span
-            key={tag}
+            key={`${tag}-${index}`}
             className="px-2 py-0.5 rounded bg-surface-container border border-hairline text-primary-container font-label-caps text-[10px]"
           >
             {tag}

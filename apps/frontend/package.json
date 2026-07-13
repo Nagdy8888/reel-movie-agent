@@ -6,17 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "benchmark:graph": "playwright test tests/graph-performance.spec.ts"
   },
   "dependencies": {
+    "@react-sigma/core": "^5.0.6",
+    "@react-sigma/layout-forceatlas2": "^5.0.6",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.110.1",
+    "graphology": "^0.26.0",
     "next": "16.2.10",
     "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "react-force-graph-2d": "^1.29.1"
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

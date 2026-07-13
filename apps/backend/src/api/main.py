@@ -3,11 +3,13 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger.json import JsonFormatter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -26,7 +28,7 @@ def _configure_logging() -> None:
     """Configure structured JSON logging for the process."""
     handler = logging.StreamHandler()
     handler.setFormatter(
-        jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+        JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )
     root = logging.getLogger()
     root.handlers = [handler]
@@ -93,8 +95,12 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Reel API", version="0.1.0", lifespan=lifespan)
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(
+        RateLimitExceeded,
+        cast(Any, _rate_limit_exceeded_handler),
+    )
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins(),

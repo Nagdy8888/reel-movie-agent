@@ -26,15 +26,18 @@ from agents.settings import get_settings
 # (get_graph_schema) is preferred so the prompt can never drift from the data.
 NEO4J_SCHEMA = (
     "Node labels:\n"
-    "  Movie(title: string, released: int, tagline: string)\n"
-    "  Person(name: string, born: int)\n"
+    "  Movie(tmdbId: int, title: string, year: int, tagline: string, overview: string, "
+    "rating: float, voteCount: int, posterUrl: string)\n"
+    "  Person(tmdbId: int, name: string, profileUrl: string)\n"
+    "  Genre(name: string)\n"
+    "  Keyword(name: string)\n"
     "Relationships:\n"
-    "  (Person)-[:ACTED_IN {roles: list<string>}]->(Movie)\n"
+    "  (Person)-[:ACTED_IN {character: string, billingOrder: int}]->(Movie)\n"
     "  (Person)-[:DIRECTED]->(Movie)\n"
     "  (Person)-[:PRODUCED]->(Movie)\n"
     "  (Person)-[:WROTE]->(Movie)\n"
-    "  (Person)-[:REVIEWED {summary: string, rating: int}]->(Movie)\n"
-    "  (Person)-[:FOLLOWS]->(Person)"
+    "  (Movie)-[:IN_GENRE]->(Genre)\n"
+    "  (Movie)-[:HAS_KEYWORD]->(Keyword)"
 )
 
 # Graph-traversal step for hybrid semantic search: after vector + full-text
@@ -44,26 +47,48 @@ NEO4J_SCHEMA = (
 # isolated taglines. This is what makes the semantic path genuinely GraphRAG.
 MOVIE_CONTEXT_QUERY = """
 WITH node AS movie, score
-OPTIONAL MATCH (a:Person)-[r:ACTED_IN]->(movie)
-WITH movie, score, collect(DISTINCT
-    a.name + CASE
-        WHEN r.roles IS NULL OR size(r.roles) = 0 THEN ''
-        ELSE ' as ' + reduce(acc = '', role IN r.roles |
-            CASE WHEN acc = '' THEN role ELSE acc + ', ' + role END)
-    END) AS cast
-OPTIONAL MATCH (d:Person)-[:DIRECTED]->(movie)
-WITH movie, score, cast, collect(DISTINCT d.name) AS directors
-OPTIONAL MATCH (w:Person)-[:WROTE]->(movie)
-WITH movie, score, cast, directors, collect(DISTINCT w.name) AS writers
-OPTIONAL MATCH (p:Person)-[:PRODUCED]->(movie)
-WITH movie, score, cast, directors, writers, collect(DISTINCT p.name) AS producers
-OPTIONAL MATCH (rv:Person)-[rr:REVIEWED]->(movie)
-WITH movie, score, cast, directors, writers, producers, collect(DISTINCT
-    rv.name + ' rated ' + toString(rr.rating) + '/100: ' + rr.summary) AS reviews
+CALL (movie) {
+    OPTIONAL MATCH (a:Person)-[r:ACTED_IN]->(movie)
+    WITH a, r ORDER BY r.billingOrder ASC
+    RETURN collect(CASE
+        WHEN a IS NULL THEN null
+        WHEN r.character IS NULL OR r.character = '' THEN a.name
+        ELSE a.name + ' as ' + r.character
+    END)[0..12] AS cast
+}
+CALL (movie) {
+    OPTIONAL MATCH (d:Person)-[:DIRECTED]->(movie)
+    RETURN collect(DISTINCT d.name)[0..5] AS directors
+}
+CALL (movie) {
+    OPTIONAL MATCH (w:Person)-[:WROTE]->(movie)
+    RETURN collect(DISTINCT w.name)[0..5] AS writers
+}
+CALL (movie) {
+    OPTIONAL MATCH (p:Person)-[:PRODUCED]->(movie)
+    RETURN collect(DISTINCT p.name)[0..5] AS producers
+}
+CALL (movie) {
+    OPTIONAL MATCH (movie)-[:IN_GENRE]->(g:Genre)
+    RETURN collect(DISTINCT g.name) AS genres
+}
+CALL (movie) {
+    OPTIONAL MATCH (movie)-[:HAS_KEYWORD]->(k:Keyword)
+    RETURN collect(DISTINCT k.name)[0..10] AS keywords
+}
 RETURN
     'Movie: ' + movie.title
-    + coalesce(' (' + toString(movie.released) + ')', '')
-    + coalesce(' - tagline: "' + movie.tagline + '"', '')
+    + coalesce(' (' + toString(movie.year) + ')', '')
+    + ' [TMDB ID: ' + toString(movie.tmdbId) + ']'
+    + coalesce('\\nRating: ' + toString(movie.rating) + '/10 from '
+        + toString(movie.voteCount) + ' votes', '')
+    + coalesce('\\nTagline: ' + movie.tagline, '')
+    + coalesce('\\nOverview: ' + substring(movie.overview, 0, 1500), '')
+    + coalesce('\\nPoster URL: ' + movie.posterUrl, '')
+    + CASE WHEN size(genres) > 0 THEN '\\nGenres: ' + reduce(s = '', x IN genres |
+        CASE WHEN s = '' THEN x ELSE s + ', ' + x END) ELSE '' END
+    + CASE WHEN size(keywords) > 0 THEN '\\nKeywords: ' + reduce(s = '', x IN keywords |
+        CASE WHEN s = '' THEN x ELSE s + ', ' + x END) ELSE '' END
     + CASE WHEN size(cast) > 0 THEN '\\nCast: ' + reduce(s = '', x IN cast |
         CASE WHEN s = '' THEN x ELSE s + '; ' + x END) ELSE '' END
     + CASE WHEN size(directors) > 0 THEN '\\nDirected by: ' + reduce(s = '', x IN directors |
@@ -72,8 +97,6 @@ RETURN
         CASE WHEN s = '' THEN x ELSE s + ', ' + x END) ELSE '' END
     + CASE WHEN size(producers) > 0 THEN '\\nProduced by: ' + reduce(s = '', x IN producers |
         CASE WHEN s = '' THEN x ELSE s + ', ' + x END) ELSE '' END
-    + CASE WHEN size(reviews) > 0 THEN '\\nReviews: ' + reduce(s = '', x IN reviews |
-        CASE WHEN s = '' THEN x ELSE s + ' | ' + x END) ELSE '' END
     AS text, score
 ORDER BY score DESC
 """
@@ -86,31 +109,45 @@ ORDER BY score DESC
 # real graph movies instead of the fail-closed "no information" reply.
 FALLBACK_MOVIES_QUERY = """
 MATCH (movie:Movie)
-OPTIONAL MATCH (:Person)-[rr:REVIEWED]->(movie)
-WITH movie, avg(rr.rating) AS avg_rating, count(rr) AS review_count
-OPTIONAL MATCH (a:Person)-[r:ACTED_IN]->(movie)
-WITH movie, avg_rating, review_count, collect(DISTINCT
-    a.name + CASE
-        WHEN r.roles IS NULL OR size(r.roles) = 0 THEN ''
-        ELSE ' as ' + reduce(acc = '', role IN r.roles |
-            CASE WHEN acc = '' THEN role ELSE acc + ', ' + role END)
-    END) AS cast
-OPTIONAL MATCH (d:Person)-[:DIRECTED]->(movie)
-WITH movie, avg_rating, review_count, cast, collect(DISTINCT d.name) AS directors
+CALL (movie) {
+    OPTIONAL MATCH (a:Person)-[r:ACTED_IN]->(movie)
+    WITH a, r ORDER BY r.billingOrder ASC
+    RETURN collect(CASE
+        WHEN a IS NULL THEN null
+        WHEN r.character IS NULL OR r.character = '' THEN a.name
+        ELSE a.name + ' as ' + r.character
+    END)[0..12] AS cast
+}
+CALL (movie) {
+    OPTIONAL MATCH (d:Person)-[:DIRECTED]->(movie)
+    RETURN collect(DISTINCT d.name)[0..5] AS directors
+}
+CALL (movie) {
+    OPTIONAL MATCH (movie)-[:IN_GENRE]->(g:Genre)
+    RETURN collect(DISTINCT g.name) AS genres
+}
 RETURN
     'Movie: ' + movie.title
-    + coalesce(' (' + toString(movie.released) + ')', '')
-    + coalesce(' - tagline: "' + movie.tagline + '"', '')
+    + coalesce(' (' + toString(movie.year) + ')', '')
+    + ' [TMDB ID: ' + toString(movie.tmdbId) + ']'
+    + coalesce('\\nRating: ' + toString(movie.rating) + '/10 from '
+        + toString(movie.voteCount) + ' votes', '')
+    + coalesce('\\nTagline: ' + movie.tagline, '')
+    + coalesce('\\nOverview: ' + substring(movie.overview, 0, 1500), '')
+    + coalesce('\\nPoster URL: ' + movie.posterUrl, '')
+    + CASE WHEN size(genres) > 0 THEN '\\nGenres: ' + reduce(s = '', x IN genres |
+        CASE WHEN s = '' THEN x ELSE s + ', ' + x END) ELSE '' END
     + CASE WHEN size(cast) > 0 THEN '\\nCast: ' + reduce(s = '', x IN cast |
         CASE WHEN s = '' THEN x ELSE s + '; ' + x END) ELSE '' END
     + CASE WHEN size(directors) > 0 THEN '\\nDirected by: ' + reduce(s = '', x IN directors |
         CASE WHEN s = '' THEN x ELSE s + ', ' + x END) ELSE '' END
     AS text
-ORDER BY review_count DESC, avg_rating DESC, movie.title
+ORDER BY movie.rating DESC, movie.voteCount DESC, movie.popularity DESC, movie.tmdbId
 LIMIT $limit
 """
 
 MAX_CYPHER_ATTEMPTS = 3
+MAX_CANDIDATE_CHARS = 2_500
 
 
 def _format_movie_context(record: neo4j.Record) -> RetrieverResultItem:
@@ -285,7 +322,8 @@ def run_rerank(question: str, candidates: list[str]) -> list[str]:
     settings = get_settings()
     if not candidates:
         return []
-    numbered = "\n\n".join(f"[{i}] {chunk}" for i, chunk in enumerate(candidates))
+    bounded = [candidate[:MAX_CANDIDATE_CHARS] for candidate in candidates]
+    numbered = "\n\n".join(f"[{i}] {chunk}" for i, chunk in enumerate(bounded))
     prompt = RERANK_SYSTEM_V1.format(
         top_k=settings.rerank_top_k,
         question=question,
@@ -295,15 +333,15 @@ def run_rerank(question: str, candidates: list[str]) -> list[str]:
         raw = strip_cypher_fences(str(get_utility_llm().invoke(prompt).content))
         order = json.loads(raw)
         picked = [
-            candidates[i]
+            bounded[i]
             for i in order
-            if isinstance(i, int) and 0 <= i < len(candidates)
+            if isinstance(i, int) and 0 <= i < len(bounded)
         ]
         if picked:
             return picked[: settings.rerank_top_k]
     except (ValueError, TypeError):
         pass
-    return candidates[: settings.rerank_top_k]
+    return bounded[: settings.rerank_top_k]
 
 
 @tool

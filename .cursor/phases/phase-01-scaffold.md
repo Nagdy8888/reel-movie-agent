@@ -208,7 +208,7 @@ Create `.env.example` documenting every variable (names + comments only, NO real
 # ---- OpenAI ----
 OPENAI_API_KEY=            # OpenAI API key (required)
 OPENAI_CHAT_MODEL=gpt-4o-mini
-OPENAI_EMBED_MODEL=text-embedding-3-large
+OPENAI_EMBED_MODEL=text-embedding-3-small
 
 # ---- LangSmith (tracing) ----
 LANGSMITH_TRACING=true

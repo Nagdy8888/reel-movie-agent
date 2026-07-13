@@ -9,6 +9,12 @@ Build the `apps/frontend` Next.js (App Router) app by porting the three delivere
 
 Wire **Supabase auth** (login/session/route-guard), the **SSE streaming** chat to `POST /chat`, and the **conversation history** sidebar to `GET /chats`. Use the design tokens from `stitch_reel_ai_movie_assistant/cinematic_intelligence_system/DESIGN.md`.
 
+> **Implementation update:** the backend now emits real `sources` and `graph`
+> SSE events and exposes authenticated `GET /graph`. The frontend loads the
+> complete graph once and renders it with Sigma.js WebGL, Graphology
+> `MultiDirectedGraph`, and a ForceAtlas2 Web Worker. The historical empty-state
+> guidance below is superseded by this live contract.
+
 > Follow the `port-stitch-screen` skill for each screen — it has the per-screen checklist. This document is the **ground truth**: prefer the facts below over assumptions. Do **not** invent endpoints, SSE events, response fields, Tailwind classes, or hex values that are not listed here or present in the source files.
 
 ---
@@ -27,8 +33,10 @@ The backend already exists under `apps/backend/src/api/`. These are the **only**
 | `GET` | `/chats` | **Bearer JWT** | `routes/chats.py` | List conversations, newest first. |
 | `GET` | `/chats/{id}` | **Bearer JWT** | `routes/chats.py` | One conversation **with messages**; 404 if not owned. |
 | `DELETE` | `/chats/{id}` | **Bearer JWT** | `routes/chats.py` | 204 on success; 404 if not owned. |
+| `GET` | `/graph` | **Bearer JWT** | `routes/graph.py` | Complete compressed knowledge graph. |
 
-There is **no** `/graph`, `/sources`, `/search`, `/movies`, or user/profile endpoint. Do not call any endpoint not in this table.
+There is no `/sources`, `/search`, `/movies`, or user/profile endpoint. Do not
+call any endpoint not in this table.
 
 ### `POST /chat` request body (`schemas.py::ChatRequest`)
 
@@ -64,7 +72,8 @@ data: {}
 
 Notes that will otherwise cause bugs:
 - The token frames have **no `event:` line** (default event name is `message`). The `thread_id` is **only** in the `meta` event, and completion is **only** signaled by the `done` event — do **not** look for `thread_id`/`done` inside the token `data:` payloads.
-- There is currently **no `sources` or `graph` event**. The stream carries `meta`, `token`×N, `done` — nothing else. (See Ground truth D for how to handle the Sources/Graph panels honestly.)
+- The stream can also emit named `sources` and `graph` events after retrieval
+  and once more after answer-level filtering.
 - Response headers include `Cache-Control: no-store` and `X-Accel-Buffering: no`.
 
 ### `GET /chats` response (`schemas.py::ConversationSummary[]`)
@@ -330,13 +339,16 @@ Right `aside` pane (`w-[340px]`) — `SourcesPanel` / `GraphPanel` behind a **ta
 
 ## Ground truth D — Honest data wiring (no fabricated content)
 
-The backend streams **only** answer text (`meta` → `token`×N → `done`). It does **not** return structured movie sources or graph nodes. To avoid shipping fake data:
+The backend returns real structured sources and answer-level graph artifacts in
+the SSE stream. It also returns the literal complete graph from authenticated
+`GET /graph`. Source cards, citations, and highlighted nodes must use those live
+payloads; never hardcode movie data.
 
-- **Sources panel:** since no `sources` event exists, render a proper **empty state** (e.g. "Sources will appear here as Reel cites them"). Do **not** hardcode the Blade Runner / Denis Villeneuve source cards. Build the `SourceCard` component and a typed `Source[]` prop that is currently always `[]`. If you later add sources, see the optional contract below.
-- **Graph panel:** same — render an empty/placeholder state (the decorative `hub` glyph or the static SVG node motif is fine as a "no graph yet" visual). Do not fabricate nodes/edges.
+- **Sources panel:** render `sources` events and preserve an honest empty state
+  before retrieval.
+- **Graph panel:** render the complete graph with the latest answer artifact
+  overlaid through reducers.
 - **Sidebar history:** this **is** live — use `GET /chats`, group by `updated_at` into "Today" / "Previous 7 Days" client-side, and refresh after each completed message (a new conversation is persisted server-side). Clicking an item loads it via `GET /chats/{id}` and sets the active `thread_id`.
-
-> **Optional stretch (explicitly out of scope unless the user asks):** to make Sources/Graph live, the backend `_event_stream` in `apps/backend/src/api/routes/chat.py` would need to emit an additional named event, e.g. `event: sources\ndata: {"sources": [...]}`. That is a **backend change** governed by the `fastapi-backend` rule and belongs in a separate task — do not silently add it here, and do not pretend the data exists.
 
 ---
 
@@ -355,7 +367,7 @@ cd apps
 pnpm create next-app@latest frontend --ts --app --tailwind --eslint --src-dir=false --import-alias "@/*"
 cd frontend
 pnpm add @supabase/supabase-js @supabase/ssr
-pnpm add react-force-graph-2d   # Graph panel; see note below
+pnpm add @react-sigma/core @react-sigma/layout-forceatlas2 graphology
 cd ../..
 ```
 
@@ -363,7 +375,9 @@ cd ../..
 > - **Recommended (matches this plan):** pin v3 — `pnpm add -D tailwindcss@3 postcss autoprefixer` then `npx tailwindcss init -p`, and use the `tailwind.config.ts` in Ground truth B.
 > - **Or v4:** translate the same tokens into the `@theme { --color-*, --font-*, ... }` block in `globals.css` and skip the JS config.
 >
-> **`react-force-graph-2d` gotcha:** it touches `window`, so import it with `next/dynamic` and `{ ssr: false }`, or it will break the server build. Since there is no graph data yet (Ground truth D), you may defer installing/using it until the Graph panel needs real data.
+> **Sigma client-only requirement:** dynamically import the Sigma runtime with
+> `next/dynamic` and `{ ssr: false }`. Use deterministic initial positions and
+> run ForceAtlas2 in its worker API.
 
 ### 2. Port design tokens → `apps/frontend/tailwind.config.ts`
 
@@ -533,7 +547,9 @@ Follow **Ground truth C** for the anatomy of each screen. Routes: `app/page.tsx`
 - **Login page:** `supabase.auth.signInWithPassword({ email, password })`; **Sign up:** `supabase.auth.signUp({ email, password, options: { data: { full_name } } })`; **Google:** `supabase.auth.signInWithOAuth({ provider: "google" })` (or hide the Google button if OAuth isn't configured — don't leave a dead button). On success redirect to `/chat`; show inline errors on failure.
 - **Chat page:** get the token via `supabase.auth.getSession()` → `session.access_token`. On send: append the user message, show `ThinkingIndicator`, consume `streamChat(...)`; on the `meta` event store `thread_id`; append each `token` to the streaming assistant `MessageBubble`; stop on `done`. Persist `thread_id` for the conversation; "New Discovery" resets it.
 - **Sidebar:** load `listChats(token)`, group by `updated_at`, refresh after each completed answer. Item click → `getChat(id, token)` loads messages and sets `thread_id`.
-- **Sources/Graph:** render honest empty states (Ground truth D). **Remove ALL Stitch mock content from the app screens** (chat/auth): the Blade Runner sample answer + citations, the fake history titles, the static source cards, and remote placeholder images. This does **not** apply to the landing page, whose marketing samples are intentionally static (see the decision note in Ground truth C).
+- **Sources/Graph:** consume live SSE artifacts and `GET /graph`; preserve honest
+  empty states while loading. **Remove ALL Stitch mock content from the app
+  screens** (chat/auth).
 
 ### 9. Env + Docker
 
@@ -565,7 +581,8 @@ pnpm --dir apps/frontend dev
 - [ ] Login authenticates via Supabase and redirects to `/chat`; `/chat` is guarded (redirects unauthenticated users to `/login`); the chat page attaches the JWT to `/chat` and `/chats`.
 - [ ] Sending a message streams tokens into the assistant bubble in real time, correctly decoding the `meta` → `token` → `done` SSE frames; `thread_id` is captured from `meta` and reused.
 - [ ] Sidebar history is populated from `GET /chats` (grouped by recency) and refreshes after each answer; selecting an item loads it via `GET /chats/{id}`.
-- [ ] Sources/Graph panels contain **no fabricated data** — they show honest empty states (or real data only if a backend sources event is added in a separate task).
+- [ ] Sources and graph panels contain only live backend data; the complete
+  graph remains responsive under WebGL rendering and worker layout.
 - [ ] All Stitch mock content is gone **from the app screens** (chat/auth): Blade Runner sample answer/citations, fake history titles, static source cards, remote placeholder image URLs.
 - [ ] The **landing page** marketing samples (hero mockup, HowItWorks/FeatureGrid copy, VisualBand chat + graph SVG) are ported faithfully as static JSX and are **not** wired to any backend call.
 - [ ] `pnpm --dir apps/frontend lint` and `pnpm --dir apps/frontend exec tsc --noEmit` pass.
@@ -573,7 +590,8 @@ pnpm --dir apps/frontend dev
 ## Do NOT
 
 - Do NOT parse the SSE stream by looking for `thread_id`/`done` inside token `data:` payloads — they arrive as named `event: meta` / `event: done` frames.
-- Do NOT invent backend endpoints or SSE events (no `/graph`, `/sources`, `/movies`; the stream is only `meta`/`token`/`done`).
+- Do NOT invent backend endpoints or SSE events beyond the implemented
+  `/graph`, `sources`, and `graph` contracts.
 - Do NOT hardcode movie sources, graph nodes, citation chips, or history titles **in the app screens** — use live data or an empty state. (The landing page's static marketing samples are the deliberate exception — see the decision note in Ground truth C.)
 - Do NOT keep Stitch's inline `tailwind.config` script, the CDN Tailwind, or the remote `lh3.googleusercontent.com` images.
 - Do NOT scatter `fetch` calls in components — use `lib/api.ts`.

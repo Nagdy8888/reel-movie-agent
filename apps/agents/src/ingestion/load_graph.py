@@ -21,14 +21,10 @@ DROP_OBSOLETE_SCHEMA: tuple[LiteralString, ...] = (
     "DROP CONSTRAINT person_name IF EXISTS",
 )
 CREATE_SCHEMA: tuple[LiteralString, ...] = (
-    "CREATE CONSTRAINT movie_tmdb_id IF NOT EXISTS "
-    "FOR (m:Movie) REQUIRE m.tmdbId IS UNIQUE",
-    "CREATE CONSTRAINT person_tmdb_id IF NOT EXISTS "
-    "FOR (p:Person) REQUIRE p.tmdbId IS UNIQUE",
-    "CREATE CONSTRAINT genre_name IF NOT EXISTS "
-    "FOR (g:Genre) REQUIRE g.name IS UNIQUE",
-    "CREATE CONSTRAINT keyword_name IF NOT EXISTS "
-    "FOR (k:Keyword) REQUIRE k.name IS UNIQUE",
+    "CREATE CONSTRAINT movie_tmdb_id IF NOT EXISTS FOR (m:Movie) REQUIRE m.tmdbId IS UNIQUE",
+    "CREATE CONSTRAINT person_tmdb_id IF NOT EXISTS FOR (p:Person) REQUIRE p.tmdbId IS UNIQUE",
+    "CREATE CONSTRAINT genre_name IF NOT EXISTS FOR (g:Genre) REQUIRE g.name IS UNIQUE",
+    "CREATE CONSTRAINT keyword_name IF NOT EXISTS FOR (k:Keyword) REQUIRE k.name IS UNIQUE",
     "CREATE INDEX movie_title IF NOT EXISTS FOR (m:Movie) ON (m.title)",
 )
 
@@ -179,9 +175,7 @@ def _write_batch(tx: ManagedTransaction, movies: list[dict[str, Any]]) -> None:
 def _replace_graph(driver: Driver, database: str) -> None:
     """Delete all existing graph data in bounded transactions."""
     with driver.session(database=database) as session:
-        session.run(
-            "MATCH (n) CALL (n) { DETACH DELETE n } IN TRANSACTIONS OF 1000 ROWS"
-        ).consume()
+        session.run("MATCH (n) CALL (n) { DETACH DELETE n } IN TRANSACTIONS OF 1000 ROWS").consume()
 
 
 def _ensure_safe_rerun(driver: Driver, database: str, replace_existing: bool) -> None:
@@ -213,10 +207,7 @@ def _apply_schema(driver: Driver, database: str) -> None:
 def _database_counts(driver: Driver, database: str) -> dict[str, int]:
     """Return supported node and relationship counts from Neo4j."""
     with driver.session(database=database) as session:
-        return {
-            str(record["key"]): int(record["count"])
-            for record in session.run(COUNT_QUERY)
-        }
+        return {str(record["key"]): int(record["count"]) for record in session.run(COUNT_QUERY)}
 
 
 def _assert_manifest(counts: Mapping[str, int], manifest: Mapping[str, Any]) -> None:

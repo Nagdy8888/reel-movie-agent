@@ -27,9 +27,7 @@ logger = logging.getLogger("reel")
 def _configure_logging() -> None:
     """Configure structured JSON logging for the process."""
     handler = logging.StreamHandler()
-    handler.setFormatter(
-        JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-    )
+    handler.setFormatter(JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(logging.INFO)

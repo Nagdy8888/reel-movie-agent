@@ -258,10 +258,7 @@ def build_vector_index(*, batch_size: int = DEFAULT_EMBED_BATCH_SIZE) -> None:
         fulltext_name=settings.fulltext_index_name,
         dimensions=settings.embedding_dimensions,
     )
-    print(
-        f"Composed, embedded, and indexed {len(rows)} movies "
-        f"using {token_count} input tokens."
-    )
+    print(f"Composed, embedded, and indexed {len(rows)} movies using {token_count} input tokens.")
 
 
 def _parser() -> argparse.ArgumentParser:

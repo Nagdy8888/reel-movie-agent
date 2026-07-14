@@ -20,9 +20,7 @@ async def list_chats(user: UserDep, store: ChatStoreDep) -> list[ConversationSum
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
-async def get_chat(
-    conversation_id: UUID, user: UserDep, store: ChatStoreDep
-) -> ConversationDetail:
+async def get_chat(conversation_id: UUID, user: UserDep, store: ChatStoreDep) -> ConversationDetail:
     """Return one conversation with its messages; 404 if not owned."""
     row = await run_in_threadpool(store.get_for_user, user.id, str(conversation_id))
     if row is None:
@@ -31,9 +29,7 @@ async def get_chat(
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_chat(
-    conversation_id: UUID, user: UserDep, store: ChatStoreDep
-) -> Response:
+async def delete_chat(conversation_id: UUID, user: UserDep, store: ChatStoreDep) -> Response:
     """Delete a conversation and its messages; 404 if not owned."""
     ok = await run_in_threadpool(store.delete_for_user, user.id, str(conversation_id))
     if not ok:

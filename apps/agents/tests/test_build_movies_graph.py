@@ -32,9 +32,7 @@ def test_select_movies_deduplicates_and_breaks_vote_ties_by_tmdb_id() -> None:
 
 def test_parse_structured_returns_empty_for_malformed_rows() -> None:
     """Malformed structured fields should not stop bundle generation."""
-    assert parse_structured("[{'id': 1, 'name': 'Drama'}]") == [
-        {"id": 1, "name": "Drama"}
-    ]
+    assert parse_structured("[{'id': 1, 'name': 'Drama'}]") == [{"id": 1, "name": "Drama"}]
     assert parse_structured("{not valid") == []
     assert parse_structured(None) == []
     assert parse_structured("{'id': 1}") == []

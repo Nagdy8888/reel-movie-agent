@@ -43,9 +43,7 @@ class AgentSettings(BaseSettings):
     retrieval_top_k: int = Field(
         default=5, description="Number of seed nodes each retriever returns."
     )
-    rerank_top_k: int = Field(
-        default=5, description="Maximum candidates kept after reranking."
-    )
+    rerank_top_k: int = Field(default=5, description="Maximum candidates kept after reranking.")
     supabase_db_url: str = Field(
         description="Postgres URL for LangGraph checkpointer/store (Supabase)."
     )

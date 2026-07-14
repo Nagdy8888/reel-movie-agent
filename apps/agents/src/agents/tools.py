@@ -332,11 +332,7 @@ def run_rerank(question: str, candidates: list[str]) -> list[str]:
     try:
         raw = strip_cypher_fences(str(get_utility_llm().invoke(prompt).content))
         order = json.loads(raw)
-        picked = [
-            bounded[i]
-            for i in order
-            if isinstance(i, int) and 0 <= i < len(bounded)
-        ]
+        picked = [bounded[i] for i in order if isinstance(i, int) and 0 <= i < len(bounded)]
         if picked:
             return picked[: settings.rerank_top_k]
     except (ValueError, TypeError):

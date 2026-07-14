@@ -60,11 +60,19 @@ def test_sources_from_candidates_builds_cards() -> None:
     assert sources[0]["poster_url"] == "https://image.tmdb.org/t/p/w500/forrest.jpg"
 
 
-def test_build_retrieval_artifacts_without_neo4j() -> None:
+def test_build_retrieval_artifacts_without_neo4j(monkeypatch) -> None:
     """Graph lookup fail-open still returns parsed sources when Neo4j is unavailable."""
+
+    def unavailable_settings():
+        """Simulate missing agent settings / unreachable Neo4j config."""
+        raise RuntimeError("neo4j unavailable")
+
+    monkeypatch.setattr("agents.artifacts.get_settings", unavailable_settings)
     artifacts = build_retrieval_artifacts([_SAMPLE_CHUNK])
     assert len(artifacts["sources"]) == 1
-    assert artifacts["graph"]["nodes"] == [] or len(artifacts["graph"]["nodes"]) >= 0
+    assert artifacts["sources"][0]["title"] == "Forrest Gump"
+    assert artifacts["graph"]["nodes"] == []
+    assert artifacts["graph"]["links"] == []
 
 
 def test_structured_graph_facts_hydrate_sources_and_highlights(monkeypatch) -> None:

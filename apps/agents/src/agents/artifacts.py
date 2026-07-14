@@ -251,8 +251,6 @@ def _resolve_movie_ids(titles: list[str]) -> list[int]:
     """
     if not titles:
         return []
-    settings = get_settings()
-    driver = get_neo4j_driver()
 
     def _read(tx: neo4j.ManagedTransaction) -> list[int]:
         """Resolve titles inside a managed read transaction."""
@@ -260,6 +258,8 @@ def _resolve_movie_ids(titles: list[str]) -> list[int]:
         return [int(record["tmdb_id"]) for record in result]
 
     try:
+        settings = get_settings()
+        driver = get_neo4j_driver()
         with driver.session(database=settings.neo4j_database) as session:
             return session.execute_read(_read)
     except Exception:
@@ -356,8 +356,6 @@ def artifacts_from_movie_ids(movie_ids: list[int]) -> RetrievalArtifacts:
     if not movie_ids:
         return RetrievalArtifacts(sources=[], graph=empty)
 
-    settings = get_settings()
-    driver = get_neo4j_driver()
     sources: dict[str, SourceArtifact] = {}
     nodes: dict[str, GraphNodeArtifact] = {}
     links: list[GraphLinkArtifact] = []
@@ -369,6 +367,8 @@ def artifacts_from_movie_ids(movie_ids: list[int]) -> RetrievalArtifacts:
         return [dict(record) for record in result]
 
     try:
+        settings = get_settings()
+        driver = get_neo4j_driver()
         with driver.session(database=settings.neo4j_database) as session:
             rows = session.execute_read(_read)
     except Exception:

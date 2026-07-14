@@ -35,6 +35,25 @@ def test_ensure_read_only_rejects_call_subquery() -> None:
         ensure_read_only("CALL { CREATE (n:Hack) } RETURN 1")
 
 
+def test_ensure_read_only_allows_write_keyword_in_string_literal() -> None:
+    """A movie title containing a write keyword is not falsely rejected."""
+    for title in ("Set It Off", "The Drop", "Creed", "Get Out"):
+        query = f"MATCH (m:Movie {{title: '{title}'}}) RETURN m.tmdbId, m.title"
+        assert ensure_read_only(query) == query
+
+
+def test_ensure_read_only_allows_write_keyword_in_comment() -> None:
+    """A write keyword inside a comment does not trip the guard."""
+    query = "MATCH (m:Movie) RETURN m.title // TODO: never DELETE here"
+    assert ensure_read_only(query) == query
+
+
+def test_ensure_read_only_still_rejects_write_outside_literal() -> None:
+    """A real write clause next to a benign string literal is still rejected."""
+    with pytest.raises(UnsafeCypherError):
+        ensure_read_only("MATCH (m:Movie {title: 'Set It Off'}) SET m.rating = 10")
+
+
 def test_strip_cypher_fences_removes_markdown() -> None:
     """Markdown fences around Cypher are stripped before validation."""
     fenced = "```cypher\nMATCH (m:Movie) RETURN m.title\n```"

@@ -1,0 +1,5 @@
+# Caddy automatically provisions and renews Let's Encrypt certificates.
+16.192.113.97.sslip.io {
+	reverse_proxy backend:8000
+	encode gzip
+}

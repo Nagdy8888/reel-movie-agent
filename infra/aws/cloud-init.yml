@@ -1,0 +1,18 @@
+#cloud-config
+# EC2 user-data: swap + Docker (Amazon Linux 2023) + app directory.
+package_update: true
+packages:
+  - docker
+runcmd:
+  # 1) create a 2 GB swap file (critical on 1 GB RAM)
+  - fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  # 2) Docker + compose plugin
+  - systemctl enable --now docker
+  - usermod -aG docker ec2-user
+  - mkdir -p /usr/local/lib/docker/cli-plugins
+  - curl -SL https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+  - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+  # 3) app dir
+  - mkdir -p /opt/reel
+  - chown ec2-user:ec2-user /opt/reel

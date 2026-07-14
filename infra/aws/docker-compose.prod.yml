@@ -1,0 +1,24 @@
+# Production stack for EC2: backend image from GHCR + Caddy TLS terminator.
+# Neo4j (Aura) and Postgres (Supabase) stay off-box.
+services:
+  backend:
+    image: ghcr.io/nagdy8888/reel-backend:latest
+    env_file: [/opt/reel/.env]
+    environment:
+      APP_ENV: prod
+    restart: unless-stopped
+    expose: ["8000"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [backend]
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,4 +1,4 @@
-# Lint, type-check, and test the Python workspace on every PR and push to main.
+# Lint, type-check, test; on main also build/push the backend image and SSH-deploy to EC2.
 name: CI
 
 on:
@@ -11,8 +11,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
-  python:
+  quality:
     name: Python (ruff · pyright · pytest)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -45,3 +49,39 @@ jobs:
 
       - name: Pytest
         run: uv run pytest -q
+
+  deploy-backend:
+    name: Build · push · SSH deploy
+    needs: quality
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/reel-backend:latest
+            ghcr.io/${{ github.repository_owner }}/reel-backend:${{ github.sha }}
+
+      - name: SSH deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: bash /opt/reel/deploy.sh

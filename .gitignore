@@ -13,6 +13,9 @@ datasets/
 # Env & secrets
 .env
 !.env.example
+*.pem
+infra/aws/reel-ec2-key.pem
+infra/aws/budget-*.json
 
 # Cursor MCP config (contains credentials)
 .cursor/mcp.json
@@ -29,3 +32,15 @@ stitch_reel_ai_movie_assistant/
 
 # prev_review_folder
 prev_review/
+
+infra/aws/.env.prod
+infra/aws/tmp-eic*
+
+
+infra/aws/reel-deploy
+infra/aws/reel-deploy.pub
+infra/aws/reel-backend.tar
+infra/aws/vercel-files-manifest.json
+
+infra/aws/tmp-eic
+infra/aws/tmp-eic.pub

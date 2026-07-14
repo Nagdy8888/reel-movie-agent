@@ -68,6 +68,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # GHCR repository names must be lowercase; GitHub owner may not be.
+      - name: Lowercase image owner
+        id: image
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
@@ -75,8 +80,8 @@ jobs:
           file: apps/backend/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/reel-backend:latest
-            ghcr.io/${{ github.repository_owner }}/reel-backend:${{ github.sha }}
+            ghcr.io/${{ steps.image.outputs.owner }}/reel-backend:latest
+            ghcr.io/${{ steps.image.outputs.owner }}/reel-backend:${{ github.sha }}
 
       - name: SSH deploy to EC2
         uses: appleboy/ssh-action@v1.2.0

@@ -1,5 +1,6 @@
 """Contract tests for the SSE chat endpoint."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -99,6 +100,112 @@ def test_chat_emits_artifacts_from_first_valid_values_event(
     assert response.text.count("event: sources") == 1
     assert response.text.count("event: graph") == 1
     assert '"movie:603"' in response.text
+
+
+def test_chat_emits_fresh_artifacts_over_stale_checkpoint_values(
+    auth_client: TestClient,
+) -> None:
+    """A resumed thread must stream the current turn's artifacts, not the prior turn's.
+
+    The checkpointer persists ``sources``/``graph`` across turns, so early values
+    snapshots on a follow-up question still carry the previous answer's artifacts.
+    The stream must flush the *freshest* snapshot (after ``retrieve``), so the UI
+    poster and subgraph update instead of freezing on the first answer.
+    """
+    stale = {
+        "sources": [{"id": "movie:1", "title": "The Hunger Games", "tags": []}],
+        "graph": {
+            "nodes": [{"id": "movie:1", "label": "The Hunger Games", "type": "Movie"}],
+            "links": [],
+        },
+    }
+    fresh = {
+        "sources": [{"id": "movie:2", "title": "Arrival", "tags": []}],
+        "graph": {
+            "nodes": [{"id": "movie:2", "label": "Arrival", "type": "Movie"}],
+            "links": [],
+        },
+    }
+
+    def _stream_events(_inputs, _config, *, version):
+        """Carry stale artifacts first (checkpoint), then the fresh retrieve output."""
+        del version
+        yield {"method": "values", "params": {"data": {"context": "old", **stale}}}
+        yield {"method": "values", "params": {"data": {"context": "old", **stale}}}
+        yield {
+            "method": "values",
+            "params": {"data": {"context": "[Graph facts]\nArrival", **fresh}},
+        }
+        yield {
+            "method": "messages",
+            "params": {
+                "data": (
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": "Watch Arrival."},
+                    },
+                    {"langgraph_node": "generate"},
+                )
+            },
+        }
+
+    from api.deps import get_graph
+
+    fake_graph = MagicMock()
+    fake_graph.stream_events = _stream_events
+    auth_client.app.dependency_overrides[get_graph] = lambda: fake_graph
+    try:
+        with patch("api.routes.chat.generate_conversation_title", return_value="Sci-fi"):
+            response = auth_client.post(
+                "/chat",
+                json={"message": "sci-fi movies about survival", "thread_id": "thread-1"},
+            )
+    finally:
+        auth_client.app.dependency_overrides.pop(get_graph, None)
+
+    assert response.status_code == 200
+    body = response.text
+    first_sources_block = body.split("event: sources")[1]
+    assert "Arrival" in first_sources_block
+    assert "The Hunger Games" not in first_sources_block
+
+
+def test_chat_emits_whole_message_reply_when_no_tokens_stream(
+    auth_client: TestClient,
+    mock_store: MagicMock,
+) -> None:
+    """A reply returned as a whole message (fail-closed answer) is still shown/saved.
+
+    Statically built answers arrive as a full ``AIMessage`` in one ``messages``
+    frame rather than ``content-block-delta`` chunks. The stream must surface the
+    text as a token and persist it instead of crashing or ending silently.
+    """
+    from langchain_core.messages import AIMessage
+
+    reply = "I don't have grounded information about that movie."
+
+    def _stream_events(_inputs, _config, *, version):
+        """Empty artifacts, then a whole-message reply with no streamed delta."""
+        del version
+        yield {
+            "method": "values",
+            "params": {"data": {"sources": [], "graph": {"nodes": [], "links": []}}},
+        }
+        yield {
+            "method": "messages",
+            "params": {"data": (AIMessage(content=reply), {"langgraph_node": "generate"})},
+        }
+
+    auth_client.app.state.graph.stream_events = _stream_events
+
+    with patch("api.routes.chat.generate_conversation_title", return_value="Unknown film"):
+        response = auth_client.post("/chat", json={"message": "Tell me about a fake movie"})
+
+    assert response.status_code == 200
+    assert f'"token": {json.dumps(reply)}' in response.text
+    mock_store.add_message.assert_any_call(
+        "11111111-1111-1111-1111-111111111111", "assistant", reply
+    )
 
 
 def test_chat_rejects_foreign_thread(auth_client: TestClient, mock_store: MagicMock) -> None:

@@ -323,6 +323,10 @@ export function ChatWorkspace() {
       }
       setIsThinking(false);
     } finally {
+      // Clear the thinking indicator even when a stream ends without emitting
+      // any answer token (e.g. a fail-closed empty-context reply), so it never
+      // spins forever.
+      setIsThinking(false);
       setIsStreaming(false);
     }
   };

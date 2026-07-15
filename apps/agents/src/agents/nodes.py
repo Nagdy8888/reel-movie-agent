@@ -40,27 +40,44 @@ def _latest_question(state: AgentState) -> str:
     return ""
 
 
+def _fresh_turn(intent: str) -> RouteUpdate:
+    """Build a route update that also clears the prior turn's artifacts.
+
+    The checkpointer persists ``context``/``sources``/``graph`` across turns.
+    Resetting them here guarantees each turn starts clean: `retrieve` repopulates
+    them for factual/recommend turns, while `chitchat` turns (which skip
+    retrieval) correctly surface no movie cards or subgraph instead of the
+    previous answer's.
+    """
+    return {
+        "intent": intent,
+        "context": "",
+        "sources": [],
+        "graph": {"nodes": [], "links": []},
+    }
+
+
 def route(state: AgentState) -> RouteUpdate:
     """Classify the latest turn so the graph can branch on intent.
 
     Reads from state:  messages
-    Writes to state:   intent
+    Writes to state:   intent, context, sources, graph (artifacts reset per turn)
     Side effects:      one non-streaming utility LLM call (classification only)
     Failure mode:      defaults to "factual" so an unclassifiable turn still
                        goes through grounded, fail-closed retrieval.
     """
     question = _latest_question(state)
     if not question:
-        return {"intent": "chitchat"}
+        return _fresh_turn("chitchat")
     try:
         raw = str(get_utility_llm().invoke(ROUTER_SYSTEM_V1.format(question=question)).content)
     except Exception:
-        return {"intent": "factual"}
+        return _fresh_turn("factual")
     label = raw.strip().lower()
     for intent in VALID_INTENTS:
         if intent in label:
-            return {"intent": intent}
-    return {"intent": "factual"}
+            return _fresh_turn(intent)
+    return _fresh_turn("factual")
 
 
 def retrieve(state: AgentState) -> RetrieveUpdate:

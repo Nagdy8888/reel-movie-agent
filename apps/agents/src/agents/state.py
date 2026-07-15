@@ -32,9 +32,18 @@ class AgentState(TypedDict):
 
 
 class RouteUpdate(TypedDict):
-    """State update produced by the `route` node."""
+    """State update produced by the `route` node.
+
+    Also resets the per-turn artifacts (`context`, `sources`, `graph`) so a
+    prior turn's values never linger in the checkpointed state — important for
+    `chitchat` turns, which skip `retrieve` and would otherwise keep showing the
+    previous answer's movie cards and subgraph.
+    """
 
     intent: str
+    context: str
+    sources: list[dict[str, Any]]
+    graph: dict[str, Any]
 
 
 class RetrieveUpdate(TypedDict):

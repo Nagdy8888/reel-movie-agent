@@ -25,6 +25,8 @@ _POSTER_LINE = re.compile(r"Poster URL:\s*(https://\S+)", re.I)
 
 _MAX_GRAPH_MOVIES = 40
 _MAX_SOURCE_TAGS = 2
+# Soft cap when the question does not name a recovered title (recommendations).
+_MAX_UNANCHORED_MOVIES = 5
 
 
 class SourceArtifact(TypedDict):
@@ -398,16 +400,80 @@ def full_graph() -> GraphArtifact:
 full_graph.cache_clear = _full_graph_cached.cache_clear  # type: ignore[attr-defined]
 
 
-def build_retrieval_artifacts(candidates: list[str]) -> RetrievalArtifacts:
+def title_mentioned_in_text(title: str, text: str) -> bool:
+    """Return True when ``title`` appears as a whole phrase in ``text``.
+
+    Args:
+        title: Movie title from the projection.
+        text: User question or assistant answer.
+
+    Returns:
+        Whether the title matches with word-boundary semantics.
+    """
+    cleaned = title.strip()
+    if not cleaned or not text:
+        return False
+    return (
+        re.search(
+            rf"(?<!\w){re.escape(cleaned)}(?!\w)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def prioritize_movie_keys_for_question(
+    question: str,
+    movie_keys: list[str],
+) -> list[str]:
+    """Keep movies named in the question; otherwise soft-cap incidental hits.
+
+    Hybrid LightRAG context often embeds several ``movie:N`` keys. For a
+    question like "Who starred in The Hunger Games?", only that title should
+    drive the sources pane and answer neighbourhood.
+
+    Args:
+        question: The user's latest message.
+        movie_keys: Recovered projection keys in first-seen order.
+
+    Returns:
+        Filtered keys to hydrate into sources/graph.
+    """
+    if not movie_keys:
+        return []
+    if not question.strip():
+        return movie_keys[:_MAX_UNANCHORED_MOVIES]
+    try:
+        movies = fetch_movies_by_ids(movie_keys)
+    except Exception:
+        return movie_keys[:_MAX_UNANCHORED_MOVIES]
+    by_id = {movie["id"]: movie for movie in movies}
+    matched: list[str] = []
+    for key in movie_keys:
+        movie = by_id.get(key)
+        if movie and title_mentioned_in_text(movie["title"], question):
+            matched.append(key)
+    if matched:
+        return matched[:_MAX_GRAPH_MOVIES]
+    return movie_keys[:_MAX_UNANCHORED_MOVIES]
+
+
+def build_retrieval_artifacts(
+    candidates: list[str],
+    *,
+    question: str = "",
+) -> RetrievalArtifacts:
     """Derive frontend sources and graph data from retrieval candidates.
 
     Args:
         candidates: Final reranked retrieval passages for the current turn.
+        question: User question used to drop incidental recovered movies.
 
     Returns:
         Structured sources and graph neighbourhood for the right pane.
     """
-    keys = extract_movie_keys(candidates)
+    keys = prioritize_movie_keys_for_question(question, extract_movie_keys(candidates))
     empty: GraphArtifact = {"nodes": [], "links": []}
     try:
         artifacts = artifacts_from_movie_keys(keys)
@@ -416,6 +482,20 @@ def build_retrieval_artifacts(candidates: list[str]) -> RetrievalArtifacts:
     sources = artifacts["sources"]
     if not sources:
         sources = sources_from_candidates(candidates)
+        if question.strip() and sources:
+            allowed = {
+                source["id"]
+                for source in sources
+                if title_mentioned_in_text(source["title"], question)
+            }
+            if allowed:
+                sources = [source for source in sources if source["id"] in allowed]
+                artifacts = artifacts_from_movie_keys([s["id"] for s in sources])
+                return RetrievalArtifacts(
+                    sources=artifacts["sources"] or sources,
+                    graph=artifacts["graph"],
+                )
+            sources = sources[:_MAX_UNANCHORED_MOVIES]
     return RetrievalArtifacts(sources=sources, graph=artifacts["graph"])
 
 
@@ -489,17 +569,21 @@ def filter_artifacts_by_answer(
     sources: list[SourceArtifact],
     graph: GraphArtifact,
     answer: str,
+    *,
+    question: str = "",
 ) -> RetrievalArtifacts:
-    """Align the right pane with movies actually cited in the assistant answer.
+    """Align the right pane with movies cited in the answer or question.
 
     Args:
         sources: Source cards built from retrieval candidates.
         graph: Subgraph built from retrieval candidates.
         answer: The assistant's final grounded reply for the turn.
+        question: Optional user question. Used when the answer lists cast/facts
+            without repeating the movie title (common for "who starred in …").
 
     Returns:
-        Filtered sources and graph. When no cited title matches, the original
-        artifacts are returned unchanged so factual answers still show context.
+        Filtered sources and graph. When neither answer nor question names a
+        recovered title, the original artifacts are returned unchanged.
     """
     available = [cast(str, source["title"]) for source in sources]
     seen = {_normalized_title_text(title) for title in available}
@@ -513,6 +597,8 @@ def filter_artifacts_by_answer(
         seen.add(key)
         available.append(title)
     cited = cited_titles_from_answer(answer, available)
+    if not cited and question.strip():
+        cited = [title for title in available if title_mentioned_in_text(title, question)]
     if not cited:
         return RetrievalArtifacts(sources=sources, graph=graph)
     cited_set = set(cited)

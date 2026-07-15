@@ -111,7 +111,7 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
     except Exception as exc:
         errors.append(f"rerank: {exc}")
 
-    artifacts = build_retrieval_artifacts(candidates)
+    artifacts = build_retrieval_artifacts(candidates, question=question)
     if candidates and not artifacts["sources"]:
         errors.append("retrieve: no projection movie recovered from context")
         candidates = []

@@ -278,3 +278,85 @@ def test_filter_artifacts_by_answer_keeps_only_cited_movies() -> None:
         "Forrest Gump",
         "Tom Hanks",
     }
+
+
+def test_filter_artifacts_falls_back_to_question_title() -> None:
+    """Cast-only answers still narrow to the movie named in the question."""
+    sources = [
+        {
+            "id": "movie:31186339",
+            "title": "The Hunger Games",
+            "subtitle": None,
+            "year": "2012",
+            "poster_url": None,
+            "tags": [],
+        },
+        {
+            "id": "movie:603",
+            "title": "The Matrix",
+            "subtitle": None,
+            "year": "1999",
+            "poster_url": None,
+            "tags": [],
+        },
+    ]
+    graph = {
+        "nodes": [
+            {"id": "movie:31186339", "label": "The Hunger Games", "type": "Movie"},
+            {"id": "movie:603", "label": "The Matrix", "type": "Movie"},
+            {"id": "person:jl", "label": "Jennifer Lawrence", "type": "Person"},
+        ],
+        "links": [
+            {
+                "source": "person:jl",
+                "target": "movie:31186339",
+                "label": "Acted In",
+            }
+        ],
+    }
+    filtered = filter_artifacts_by_answer(
+        sources,
+        graph,
+        "Jennifer Lawrence as Katniss Everdeen; Josh Hutcherson as Peeta Mellark.",
+        question="Who starred in The Hunger Games?",
+    )
+    assert len(filtered["sources"]) == 1
+    assert filtered["sources"][0]["title"] == "The Hunger Games"
+    assert {node["label"] for node in filtered["graph"]["nodes"]} == {
+        "The Hunger Games",
+        "Jennifer Lawrence",
+    }
+
+
+def test_prioritize_movie_keys_keeps_only_question_title(monkeypatch) -> None:
+    """Incidental recovered keys are dropped when the question names a film."""
+    from agents.artifacts import prioritize_movie_keys_for_question
+
+    monkeypatch.setattr(
+        "agents.artifacts.fetch_movies_by_ids",
+        lambda keys: [
+            {
+                "id": "movie:31186339",
+                "wikipedia_id": "31186339",
+                "title": "The Hunger Games",
+                "year": 2012,
+                "box_office": 1,
+                "poster_url": None,
+                "subtitle": None,
+            },
+            {
+                "id": "movie:1",
+                "wikipedia_id": "1",
+                "title": "Paranormal Activity",
+                "year": 2007,
+                "box_office": 1,
+                "poster_url": None,
+                "subtitle": None,
+            },
+        ],
+    )
+    keys = prioritize_movie_keys_for_question(
+        "Who starred in The Hunger Games?",
+        ["movie:31186339", "movie:1"],
+    )
+    assert keys == ["movie:31186339"]

@@ -112,7 +112,12 @@ async def _event_stream(
             yield f"data: {json.dumps({'token': text})}\n\n"
     answer = "".join(parts)
     if answer and last_sources:
-        filtered = filter_artifacts_by_answer(last_sources, last_graph, answer)
+        filtered = filter_artifacts_by_answer(
+            last_sources,
+            last_graph,
+            answer,
+            question=body.message,
+        )
         if filtered["sources"] != last_sources or filtered["graph"] != last_graph:
             yield f"event: sources\ndata: {json.dumps({'sources': filtered['sources']})}\n\n"
             yield f"event: graph\ndata: {json.dumps(filtered['graph'])}\n\n"

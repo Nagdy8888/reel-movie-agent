@@ -197,6 +197,99 @@ def test_chat_re_emits_filtered_sources_when_answer_cites_one_film(
     assert "The Matrix" not in filtered_block
 
 
+def test_chat_filters_by_question_when_answer_omits_title(
+    auth_client: TestClient,
+    mock_store: MagicMock,
+) -> None:
+    """Cast answers without the film title still filter via the question."""
+    graph = MagicMock()
+
+    def _stream_events(_inputs, _config, *, version):
+        del version
+        yield {
+            "type": "event",
+            "method": "values",
+            "params": {
+                "data": {
+                    "context": "facts",
+                    "sources": [
+                        {
+                            "id": "movie:31186339",
+                            "title": "The Hunger Games",
+                            "subtitle": None,
+                            "year": "2012",
+                            "tags": [],
+                        },
+                        {
+                            "id": "movie:603",
+                            "title": "The Matrix",
+                            "subtitle": None,
+                            "year": "1999",
+                            "tags": [],
+                        },
+                    ],
+                    "graph": {
+                        "nodes": [
+                            {
+                                "id": "movie:31186339",
+                                "label": "The Hunger Games",
+                                "type": "Movie",
+                            },
+                            {"id": "movie:603", "label": "The Matrix", "type": "Movie"},
+                        ],
+                        "links": [],
+                    },
+                }
+            },
+            "seq": 1,
+        }
+        yield {
+            "type": "event",
+            "method": "messages",
+            "params": {
+                "data": (
+                    {
+                        "event": "content-block-delta",
+                        "index": 0,
+                        "delta": {
+                            "type": "text-delta",
+                            "text": "Jennifer Lawrence as Katniss Everdeen.",
+                        },
+                    },
+                    {"langgraph_node": "generate"},
+                )
+            },
+            "seq": 2,
+        }
+
+    graph.stream_events = _stream_events
+
+    with (
+        patch("api.main.build_checkpointer", return_value=MagicMock()),
+        patch("api.main.build_store", return_value=MagicMock()),
+        patch("api.main.build_graph", return_value=graph),
+        patch("api.main.open_pool", return_value=MagicMock()),
+        patch("api.routes.chat.generate_conversation_title", return_value="Hunger Games"),
+    ):
+        from api.auth import User, current_user
+        from api.deps import get_chat_store
+        from api.main import create_app
+
+        app = create_app()
+        app.dependency_overrides[get_chat_store] = lambda: mock_store
+        app.dependency_overrides[current_user] = lambda: User(id="user-1", email="a@b.co")
+        with TestClient(app) as client:
+            response = client.post(
+                "/chat",
+                json={"message": "Who starred in The Hunger Games?"},
+            )
+
+    assert response.status_code == 200
+    filtered_block = response.text.split("event: sources")[-1]
+    assert "The Hunger Games" in filtered_block
+    assert "The Matrix" not in filtered_block
+
+
 def test_chat_rejects_empty_message(auth_client: TestClient) -> None:
     """Chat rejects requests with an empty message."""
     response = auth_client.post("/chat", json={"message": ""})

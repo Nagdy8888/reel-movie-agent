@@ -61,7 +61,7 @@ def test_recommendation_fallback_formats_movie_keys(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "agents.retrieval.fetch_cast_names",
-        lambda ids, limit_per_movie=12: {"movie:1": ["Star"]},
+        lambda ids, limit_per_movie=12, include_characters=False: {"movie:1": ["Star"]},
     )
     monkeypatch.setattr(
         "agents.retrieval.get_settings",

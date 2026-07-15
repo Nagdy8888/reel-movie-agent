@@ -186,8 +186,10 @@ async def _event_stream(
             yield f"data: {json.dumps({'token': text})}\n\n"
     # Flush artifacts even when no answer token streamed (e.g. fail-closed reply)
     # so a non-empty result still populates the panels.
-    if not artifacts_flushed and have_artifacts and (
-        last_sources or last_graph.get("nodes") or last_graph.get("links")
+    if (
+        not artifacts_flushed
+        and have_artifacts
+        and (last_sources or last_graph.get("nodes") or last_graph.get("links"))
     ):
         for frame in _artifact_frames():
             yield frame

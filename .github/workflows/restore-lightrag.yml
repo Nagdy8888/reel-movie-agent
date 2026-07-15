@@ -1,0 +1,70 @@
+# One-shot: pull a LightRAG pg_dump (-Fc) from a GitHub Release onto EC2 and restore.
+name: Restore LightRAG dump
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag that holds lightrag-prod.dump (or *.dump)"
+        required: true
+        type: string
+        default: lightrag-dump-tmp
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    name: Download · SCP · restore on EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Download dump from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "${{ inputs.release_tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.dump" \
+            --dir .
+          ls -lh ./*.dump
+          mv ./*.dump lightrag.dump
+
+      - name: Upload dump to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: lightrag.dump
+          target: /tmp
+
+      - name: Restore into rag-postgres
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd /opt/reel
+            set -a
+            # shellcheck disable=SC1091
+            source /opt/reel/.env
+            set +a
+            sudo docker cp /tmp/lightrag.dump reel-rag-postgres-1:/tmp/lightrag.dump
+            # --clean may warn on AGE objects; tolerate non-zero if data lands.
+            set +e
+            sudo docker exec -e PGPASSWORD="$RAG_PG_PASSWORD" reel-rag-postgres-1 \
+              pg_restore -U "$RAG_PG_USER" -d "$RAG_PG_DATABASE" --clean --if-exists --no-owner \
+              /tmp/lightrag.dump
+            restore_rc=$?
+            set -e
+            echo "pg_restore exit=$restore_rc"
+            sudo docker exec -e PGPASSWORD="$RAG_PG_PASSWORD" reel-rag-postgres-1 \
+              psql -U "$RAG_PG_USER" -d "$RAG_PG_DATABASE" -c "SELECT 1 AS ok;"
+            sudo docker compose -f docker-compose.prod.yml restart backend
+            sudo rm -f /tmp/lightrag.dump
+            echo "Restore finished; backend restarted."

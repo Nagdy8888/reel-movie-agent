@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from functools import lru_cache
+from typing import TypedDict
 from urllib.parse import quote
 
-import psycopg
-from psycopg.rows import dict_row
+from psycopg import Connection
+from psycopg.rows import DictRow, dict_row
+from psycopg_pool import ConnectionPool
 
 from agents.settings import get_settings
 
@@ -90,11 +92,28 @@ def movie_id_from_wikipedia(wikipedia_id: str | int) -> str:
     return f"movie:{wikipedia_id}"
 
 
-def _connect() -> Any:
-    """Open a sync Supabase Postgres connection for projection queries."""
+@lru_cache(maxsize=1)
+def get_projection_pool() -> ConnectionPool[Connection[DictRow]]:
+    """Return the shared Supabase projection connection pool."""
     settings = get_settings()
-    # psycopg stubs type ``connect`` as TupleRow; dict_row is correct at runtime.
-    return psycopg.connect(settings.supabase_db_url, row_factory=dict_row)  # type: ignore[arg-type]
+    return ConnectionPool(
+        conninfo=settings.supabase_db_url,
+        min_size=1,
+        max_size=5,
+        kwargs={
+            "autocommit": True,
+            "prepare_threshold": 0,
+            "row_factory": dict_row,
+        },
+        open=True,
+    )
+
+
+def close_projection_pool() -> None:
+    """Close the cached projection pool during process shutdown."""
+    if get_projection_pool.cache_info().currsize:
+        get_projection_pool().close()
+        get_projection_pool.cache_clear()
 
 
 def fetch_movies_by_ids(movie_ids: list[str]) -> list[MovieRow]:
@@ -108,7 +127,7 @@ def fetch_movies_by_ids(movie_ids: list[str]) -> list[MovieRow]:
     """
     if not movie_ids:
         return []
-    with _connect() as conn:
+    with get_projection_pool().connection() as conn:
         rows = conn.execute(
             """
             SELECT id, wikipedia_id, title, year, box_office, poster_url, subtitle
@@ -133,7 +152,7 @@ def fetch_movies_by_titles(titles: list[str]) -> list[MovieRow]:
     if not titles:
         return []
     lowered = [title.casefold() for title in titles]
-    with _connect() as conn:
+    with get_projection_pool().connection() as conn:
         rows = conn.execute(
             """
             SELECT id, wikipedia_id, title, year, box_office, poster_url, subtitle
@@ -167,7 +186,7 @@ def fetch_cast_names(movie_ids: list[str], *, limit_per_movie: int = 2) -> dict[
     """
     if not movie_ids:
         return {}
-    with _connect() as conn:
+    with get_projection_pool().connection() as conn:
         rows = conn.execute(
             """
             SELECT ai.movie_id, p.name, ai.billing_order
@@ -207,58 +226,103 @@ def fetch_movie_neighbourhood(
     Returns:
         Movies, people, genres, acted_in edges, and in_genre edges.
     """
-    movies = fetch_movies_by_ids(movie_ids)
-    if not movies:
+    if not movie_ids:
         return [], [], [], [], []
-    ids = [m["id"] for m in movies]
-    with _connect() as conn:
-        people = [
-            PersonRow(**row)
-            for row in conn.execute(
-                """
-                SELECT DISTINCT p.id, p.name
-                FROM public.people p
-                JOIN public.acted_in ai ON ai.person_id = p.id
-                WHERE ai.movie_id = ANY(%s)
-                """,
-                (ids,),
-            ).fetchall()
-        ]
-        genres = [
-            GenreRow(**row)
-            for row in conn.execute(
-                """
-                SELECT DISTINCT g.id, g.name
-                FROM public.genres g
-                JOIN public.in_genre ig ON ig.genre_id = g.id
-                WHERE ig.movie_id = ANY(%s)
-                """,
-                (ids,),
-            ).fetchall()
-        ]
-        acted_in = [
-            ActedInRow(**row)
-            for row in conn.execute(
-                """
-                SELECT person_id, movie_id, character, billing_order
-                FROM public.acted_in
-                WHERE movie_id = ANY(%s)
-                """,
-                (ids,),
-            ).fetchall()
-        ]
-        in_genre = [
-            InGenreRow(**row)
-            for row in conn.execute(
-                """
-                SELECT movie_id, genre_id
-                FROM public.in_genre
-                WHERE movie_id = ANY(%s)
-                """,
-                (ids,),
-            ).fetchall()
-        ]
-    return movies, people, genres, acted_in, in_genre
+    with get_projection_pool().connection() as conn:
+        row = conn.execute(
+            """
+            WITH requested AS (
+                SELECT id, position
+                FROM unnest(%s::text[]) WITH ORDINALITY AS request(id, position)
+            ),
+            selected_movies AS (
+                SELECT m.id, m.wikipedia_id, m.title, m.year, m.box_office,
+                       m.poster_url, m.subtitle, requested.position
+                FROM requested
+                JOIN public.movies m ON m.id = requested.id
+            ),
+            selected_acted AS (
+                SELECT ai.person_id, ai.movie_id, ai.character, ai.billing_order
+                FROM public.acted_in ai
+                JOIN selected_movies m ON m.id = ai.movie_id
+            ),
+            selected_genres AS (
+                SELECT ig.movie_id, ig.genre_id
+                FROM public.in_genre ig
+                JOIN selected_movies m ON m.id = ig.movie_id
+            )
+            SELECT
+                COALESCE((
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'id', m.id,
+                            'wikipedia_id', m.wikipedia_id,
+                            'title', m.title,
+                            'year', m.year,
+                            'box_office', m.box_office,
+                            'poster_url', m.poster_url,
+                            'subtitle', m.subtitle
+                        )
+                        ORDER BY m.position
+                    )
+                    FROM selected_movies m
+                ), '[]'::jsonb) AS movies,
+                COALESCE((
+                    SELECT jsonb_agg(
+                        jsonb_build_object('id', people.id, 'name', people.name)
+                        ORDER BY people.name, people.id
+                    )
+                    FROM (
+                        SELECT DISTINCT p.id, p.name
+                        FROM public.people p
+                        JOIN selected_acted ai ON ai.person_id = p.id
+                    ) AS people
+                ), '[]'::jsonb) AS people,
+                COALESCE((
+                    SELECT jsonb_agg(
+                        jsonb_build_object('id', genres.id, 'name', genres.name)
+                        ORDER BY genres.name, genres.id
+                    )
+                    FROM (
+                        SELECT DISTINCT g.id, g.name
+                        FROM public.genres g
+                        JOIN selected_genres ig ON ig.genre_id = g.id
+                    ) AS genres
+                ), '[]'::jsonb) AS genres,
+                COALESCE((
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'person_id', ai.person_id,
+                            'movie_id', ai.movie_id,
+                            'character', ai.character,
+                            'billing_order', ai.billing_order
+                        )
+                        ORDER BY ai.movie_id, ai.billing_order NULLS LAST, ai.person_id
+                    )
+                    FROM selected_acted ai
+                ), '[]'::jsonb) AS acted_in,
+                COALESCE((
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'movie_id', ig.movie_id,
+                            'genre_id', ig.genre_id
+                        )
+                        ORDER BY ig.movie_id, ig.genre_id
+                    )
+                    FROM selected_genres ig
+                ), '[]'::jsonb) AS in_genre
+            """,
+            (movie_ids,),
+        ).fetchone()
+    if row is None:
+        return [], [], [], [], []
+    return (
+        [MovieRow(**item) for item in row["movies"]],
+        [PersonRow(**item) for item in row["people"]],
+        [GenreRow(**item) for item in row["genres"]],
+        [ActedInRow(**item) for item in row["acted_in"]],
+        [InGenreRow(**item) for item in row["in_genre"]],
+    )
 
 
 def fetch_full_projection() -> tuple[
@@ -273,7 +337,7 @@ def fetch_full_projection() -> tuple[
     Returns:
         All projection nodes and edges for the ingested subset.
     """
-    with _connect() as conn:
+    with get_projection_pool().connection() as conn:
         movies = [
             MovieRow(**row)
             for row in conn.execute(
@@ -317,7 +381,7 @@ def fetch_top_box_office_movies(limit: int) -> list[MovieRow]:
     Returns:
         Movies ordered by box office descending.
     """
-    with _connect() as conn:
+    with get_projection_pool().connection() as conn:
         rows = conn.execute(
             """
             SELECT id, wikipedia_id, title, year, box_office, poster_url, subtitle
@@ -336,7 +400,7 @@ def list_movie_titles() -> list[str]:
     Returns:
         Title strings currently stored in ``public.movies``.
     """
-    with _connect() as conn:
+    with get_projection_pool().connection() as conn:
         rows = conn.execute("SELECT title FROM public.movies ORDER BY title").fetchall()
     return [str(row["title"]) for row in rows if row.get("title")]
 

@@ -1,5 +1,6 @@
 """Cached, shared client factories for the agent."""
 
+import os
 from functools import lru_cache
 from types import SimpleNamespace
 
@@ -9,6 +10,15 @@ from openai import AsyncOpenAI, OpenAI
 from pydantic import SecretStr
 
 from agents.settings import get_settings
+
+
+def configure_langsmith() -> None:
+    """Export settings so direct OpenAI and ``@traceable`` calls are traced."""
+    settings = get_settings()
+    os.environ.setdefault("LANGSMITH_TRACING", str(settings.langsmith_tracing).lower())
+    if settings.langsmith_api_key:
+        os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
+    os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
 
 
 class UtilityLLM:
@@ -47,6 +57,7 @@ def get_chat_model() -> ChatOpenAI:
 
     Cached so the client (and its HTTP pool) is created once, not per call.
     """
+    configure_langsmith()
     settings = get_settings()
     return ChatOpenAI(
         model=settings.openai_chat_model,
@@ -69,6 +80,7 @@ def get_utility_llm() -> UtilityLLM:
 @lru_cache(maxsize=1)
 def get_sync_openai_client() -> OpenAI:
     """Return a LangSmith-wrapped sync OpenAI client."""
+    configure_langsmith()
     settings = get_settings()
     return wrap_openai(
         OpenAI(api_key=settings.openai_api_key, timeout=settings.llm_timeout_seconds)
@@ -78,6 +90,7 @@ def get_sync_openai_client() -> OpenAI:
 @lru_cache(maxsize=1)
 def get_async_openai_client() -> AsyncOpenAI:
     """Return a LangSmith-wrapped async OpenAI client for LightRAG calls."""
+    configure_langsmith()
     settings = get_settings()
     return wrap_openai(
         AsyncOpenAI(api_key=settings.openai_api_key, timeout=settings.llm_timeout_seconds)

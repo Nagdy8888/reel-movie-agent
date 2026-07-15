@@ -19,11 +19,16 @@ todos:
     status: completed
   - id: verify-and-document
     content: Run contract, ingestion, retrieval, artifact, health, and settings tests; do a bounded smoke ingest then the full 1,000; verify LangSmith token traces; update architecture, setup, deployment, and security docs.
-    status: completed
+    status: in_progress
 isProject: false
 ---
 
 # Migrate Reel from Neo4j to LightRAG (1,000-movie CMU subset, hybrid load)
+
+> **Execution status (2026-07-15):** the smoke ingest passed. The 1,000-movie
+> run stopped at the OpenAI API limit with 506 processed documents; the largest
+> fully processed deterministic prefix was finalized and validated at 503
+> movies. Code supports resuming to 1,000 when quota is available.
 
 ## Decisions locked in
 

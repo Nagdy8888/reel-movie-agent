@@ -1,10 +1,11 @@
 """Liveness and readiness endpoints."""
 
-import psycopg
+from typing import Any
+
 from fastapi import APIRouter, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 
 from agents.lightrag_service import lightrag_ready
-from agents.settings import get_settings
 from api.schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
@@ -16,15 +17,16 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-def _supabase_ready() -> bool:
-    """Return True when the Supabase Postgres accepts a trivial query."""
-    settings = get_settings()
-    try:
-        with psycopg.connect(settings.supabase_db_url, connect_timeout=5) as conn:
-            conn.execute("SELECT 1")
-        return True
-    except Exception:
-        return False
+def _verify_postgres_dependencies(request: Request) -> None:
+    """Probe the app's Supabase pool and LangGraph checkpointer."""
+    request.app.state.db_pool.check()
+    config: dict[str, Any] = {
+        "configurable": {
+            "thread_id": "__readiness__",
+            "checkpoint_ns": "",
+        }
+    }
+    request.app.state.checkpointer.get_tuple(config)
 
 
 @router.get("/ready", response_model=HealthResponse)
@@ -33,9 +35,7 @@ async def ready(request: Request, response: Response) -> HealthResponse:
     try:
         if not await lightrag_ready():
             raise RuntimeError("lightrag postgres unavailable")
-        if not _supabase_ready():
-            raise RuntimeError("supabase unavailable")
-        _ = request.app.state.checkpointer
+        await run_in_threadpool(_verify_postgres_dependencies, request)
         return HealthResponse(status="ok")
     except Exception:  # noqa: BLE001 - readiness must never leak internals
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

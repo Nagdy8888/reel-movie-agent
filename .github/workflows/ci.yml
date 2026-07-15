@@ -83,6 +83,26 @@ jobs:
             ghcr.io/${{ steps.image.outputs.owner }}/reel-backend:latest
             ghcr.io/${{ steps.image.outputs.owner }}/reel-backend:${{ github.sha }}
 
+      - name: Build and push LightRAG Postgres image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/agents/Dockerfile.postgres
+          push: true
+          tags: |
+            ghcr.io/${{ steps.image.outputs.owner }}/reel-lightrag-postgres:latest
+            ghcr.io/${{ steps.image.outputs.owner }}/reel-lightrag-postgres:${{ github.sha }}
+
+      - name: Sync EC2 compose files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "infra/aws/docker-compose.prod.yml,infra/aws/deploy.sh,infra/aws/Caddyfile"
+          target: /opt/reel
+          strip_components: 2
+
       - name: SSH deploy to EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -93,6 +113,7 @@ jobs:
           script: |
             set -euo pipefail
             echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            chmod +x /opt/reel/deploy.sh
             sudo bash /opt/reel/deploy.sh
         env:
           GHCR_USER: ${{ github.actor }}

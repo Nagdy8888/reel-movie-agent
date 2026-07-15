@@ -66,7 +66,7 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
     """Run both retrievers, merge, and rerank into grounding context.
 
     Reads from state:  messages, intent
-    Writes to state:   context, errors
+    Writes to state:   context, sources, graph, errors
     Side effects:      LightRAG context retrieval (RAG Postgres + local/hybrid
                        query) and one non-streaming rerank LLM call; projection
                        reads for artifact hydration
@@ -111,6 +111,9 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
         errors.append(f"rerank: {exc}")
 
     artifacts = build_retrieval_artifacts(candidates)
+    if candidates and not artifacts["sources"]:
+        errors.append("retrieve: no projection movie recovered from context")
+        candidates = []
     return {
         "context": "\n\n".join(candidates)[:MAX_GENERATION_CONTEXT_CHARS],
         "sources": cast(list[dict[str, Any]], artifacts["sources"]),

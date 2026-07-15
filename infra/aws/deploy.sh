@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pull the latest backend image and restart the prod stack.
+# Pull the latest backend + LightRAG Postgres images and restart the prod stack.
 set -euo pipefail
 cd /opt/reel
 

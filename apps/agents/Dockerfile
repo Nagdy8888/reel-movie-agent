@@ -9,8 +9,10 @@ COPY apps/agents ./apps/agents
 COPY apps/backend ./apps/backend
 # Sync the workspace (root owns `[dependency-groups] dev`, including langgraph-cli).
 RUN uv sync --frozen --group dev
-# Non-root user (security requirement); owns /app so uv can write its cache.
-RUN useradd --create-home appuser && chown -R appuser:appuser /app
+# Non-root user owns the app and persistent LightRAG working directory.
+RUN useradd --create-home appuser \
+  && mkdir -p /data/lightrag \
+  && chown -R appuser:appuser /app /data/lightrag
 USER appuser
 WORKDIR /app/apps/agents
 EXPOSE 2024

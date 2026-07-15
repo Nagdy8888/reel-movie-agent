@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Literal, cast
 
@@ -9,13 +10,22 @@ import asyncpg
 import numpy as np
 from lightrag import LightRAG, QueryParam
 from lightrag.kg.shared_storage import initialize_pipeline_status
-from lightrag.utils import wrap_embedding_func_with_attrs
+from lightrag.utils import EmbeddingFunc, wrap_embedding_func_with_attrs
 from openai.types.chat import ChatCompletionMessageParam
 
 from agents.clients import get_async_openai_client
 from agents.settings import get_settings
 
 _rag: LightRAG | None = None
+_rag_lock: asyncio.Lock | None = None
+
+
+def _initialization_lock() -> asyncio.Lock:
+    """Return the lock bound to the current LightRAG runtime loop."""
+    global _rag_lock
+    if _rag_lock is None:
+        _rag_lock = asyncio.Lock()
+    return _rag_lock
 
 
 def _configure_postgres_env() -> None:
@@ -52,6 +62,7 @@ async def _embed(texts: list[str]) -> np.ndarray:
     response = await client.embeddings.create(
         model=settings.openai_embed_model,
         input=texts,
+        dimensions=settings.embedding_dimensions,
         timeout=settings.llm_timeout_seconds,
     )
     vectors = [item.embedding for item in response.data]
@@ -109,23 +120,47 @@ async def get_lightrag() -> LightRAG:
     if _rag is not None:
         return _rag
 
-    settings = get_settings()
-    os.makedirs(settings.lightrag_working_dir, exist_ok=True)
-    _configure_postgres_env()
-    rag = LightRAG(
-        working_dir=settings.lightrag_working_dir,
-        workspace=settings.rag_pg_workspace,
-        kv_storage="PGKVStorage",
-        vector_storage="PGVectorStorage",
-        graph_storage="PGGraphStorage",
-        doc_status_storage="PGDocStatusStorage",
-        embedding_func=_embed,
-        llm_model_func=_llm,
-    )
-    await rag.initialize_storages()
-    await initialize_pipeline_status()
-    _rag = rag
+    async with _initialization_lock():
+        if _rag is not None:
+            return _rag
+        settings = get_settings()
+        os.makedirs(settings.lightrag_working_dir, exist_ok=True)
+        _configure_postgres_env()
+        rag = LightRAG(
+            working_dir=settings.lightrag_working_dir,
+            workspace=settings.rag_pg_workspace,
+            kv_storage="PGKVStorage",
+            vector_storage="PGVectorStorage",
+            graph_storage="PGGraphStorage",
+            doc_status_storage="PGDocStatusStorage",
+            embedding_func=EmbeddingFunc(
+                embedding_dim=settings.embedding_dimensions,
+                max_token_size=8192,
+                func=_embed.func,
+                model_name=settings.openai_embed_model,
+            ),
+            llm_model_func=_llm,
+        )
+        await rag.initialize_storages()
+        await initialize_pipeline_status()
+        _rag = rag
     return _rag
+
+
+async def finalize_lightrag() -> None:
+    """Finalize initialized LightRAG storages during process shutdown."""
+    global _rag, _rag_lock
+    if _rag is None:
+        return
+    rag = _rag
+    _rag = None
+    await rag.finalize_storages()
+    _rag_lock = None
+
+
+def lightrag_initialized() -> bool:
+    """Return whether the process has initialized the LightRAG singleton."""
+    return _rag is not None
 
 
 async def lightrag_ready() -> bool:
@@ -168,6 +203,7 @@ async def aquery_context(
             mode=mode,
             only_need_context=True,
             top_k=settings.retrieval_top_k,
+            enable_rerank=False,
         ),
     )
     if result is None:

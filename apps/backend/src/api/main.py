@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -13,8 +14,14 @@ from pythonjsonlogger.json import JsonFormatter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from agents.async_bridge import run_sync
 from agents.graph import build_graph
+from agents.lightrag_service import (
+    finalize_lightrag,
+    lightrag_initialized,
+)
 from agents.memory import build_checkpointer, build_store
+from agents.projection import close_projection_pool
 from api.db import open_pool
 from api.limiter import limiter
 from api.middleware import RequestContextMiddleware
@@ -80,8 +87,13 @@ async def lifespan(app: FastAPI):
     app.state.graph = build_graph(checkpointer=checkpointer, store=store)
     app.state.checkpointer = checkpointer
     app.state.db_pool = open_pool()
-    yield
-    app.state.db_pool.close()
+    try:
+        yield
+    finally:
+        app.state.db_pool.close()
+        close_projection_pool()
+        if lightrag_initialized():
+            await run_in_threadpool(run_sync, finalize_lightrag())
 
 
 def create_app() -> FastAPI:

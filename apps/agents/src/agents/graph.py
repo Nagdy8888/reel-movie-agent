@@ -39,13 +39,12 @@ def build_graph(
     `route` classifies the turn's intent. Greetings/small talk branch to
     `converse` (a friendly, graph-free reply) so the agent no longer answers
     "no information" to a hello. Factual and recommendation turns branch to
-    `retrieve`, which always runs both retrievers (robust Text2Cypher + hybrid
-    vector/full-text semantic search with graph expansion) and, for empty
-    recommendation turns, falls back to well-reviewed movies; it then merges and
-    reranks the candidates into grounding context. `generate` produces the
-    grounded, fail-closed answer. Compiled WITHOUT a checkpointer by default so
-    LangGraph Studio can supply its own; the backend (Phase 5) passes a Postgres
-    checkpointer + store.
+    `retrieve`, which runs LightRAG local and hybrid context-only retrieval and,
+    for empty recommendation turns, falls back to top box-office projection
+    movies. It then merges and reranks candidates, recovers stable movie keys,
+    and hydrates UI artifacts from Supabase. `generate` produces the grounded,
+    fail-closed answer. Compiled WITHOUT a checkpointer by default so LangGraph
+    Studio can supply its own; the backend passes a Postgres checkpointer + store.
     """
     builder = StateGraph(AgentState)
     builder.add_node(

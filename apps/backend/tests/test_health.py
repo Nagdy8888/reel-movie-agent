@@ -16,7 +16,7 @@ def test_ready_returns_ok_when_dependencies_up(client: TestClient) -> None:
     """Readiness returns 200 when LightRAG Postgres, Supabase, and checkpointer are up."""
     with (
         patch("api.routes.health.lightrag_ready", new=AsyncMock(return_value=True)),
-        patch("api.routes.health._supabase_ready", return_value=True),
+        patch("api.routes.health._verify_postgres_dependencies"),
     ):
         response = client.get("/ready")
     assert response.status_code == 200
@@ -27,7 +27,7 @@ def test_ready_returns_503_when_lightrag_unavailable(client: TestClient) -> None
     """Readiness returns 503 without leaking exception details."""
     with (
         patch("api.routes.health.lightrag_ready", new=AsyncMock(return_value=False)),
-        patch("api.routes.health._supabase_ready", return_value=True),
+        patch("api.routes.health._verify_postgres_dependencies"),
     ):
         response = client.get("/ready")
     assert response.status_code == 503
@@ -38,7 +38,10 @@ def test_ready_returns_503_when_supabase_unavailable(client: TestClient) -> None
     """Readiness returns 503 when the Supabase projection/checkpointer DB is down."""
     with (
         patch("api.routes.health.lightrag_ready", new=AsyncMock(return_value=True)),
-        patch("api.routes.health._supabase_ready", return_value=False),
+        patch(
+            "api.routes.health._verify_postgres_dependencies",
+            side_effect=OSError("connection refused"),
+        ),
     ):
         response = client.get("/ready")
     assert response.status_code == 503

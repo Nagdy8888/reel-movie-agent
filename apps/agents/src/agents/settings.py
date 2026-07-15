@@ -2,6 +2,7 @@
 
 from functools import cached_property
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote_plus
 
 from pydantic import Field
@@ -26,10 +27,23 @@ class AgentSettings(BaseSettings):
     openai_embed_model: str = Field(
         default="text-embedding-3-small", description="OpenAI embedding model."
     )
-    llm_timeout_seconds: float = Field(default=30.0, description="Per-call LLM timeout in seconds.")
-    llm_max_tokens: int = Field(default=1024, description="Maximum tokens per LLM completion.")
+    llm_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Per-call LLM timeout in seconds.",
+    )
+    llm_max_tokens: int = Field(
+        default=1024,
+        ge=1,
+        description="Maximum tokens per LLM completion.",
+    )
     rag_pg_host: str = Field(description="Host for the AGE+pgvector LightRAG Postgres.")
-    rag_pg_port: int = Field(default=5432, description="Port for the LightRAG Postgres.")
+    rag_pg_port: int = Field(
+        default=5432,
+        ge=1,
+        le=65535,
+        description="Port for the LightRAG Postgres.",
+    )
     rag_pg_user: str = Field(description="Username for the LightRAG Postgres.")
     rag_pg_password: str = Field(description="Password for the LightRAG Postgres.")
     rag_pg_database: str = Field(description="Database name for the LightRAG Postgres.")
@@ -47,19 +61,28 @@ class AgentSettings(BaseSettings):
     )
     subset_size: int = Field(
         default=1000,
+        ge=1,
         description="Number of CMU movies to ingest into LightRAG and the UI projection.",
     )
     ingest_concurrency: int = Field(
         default=4,
+        ge=1,
         description="Semaphore cap for parallel LightRAG extraction and TMDB poster calls.",
     )
-    embedding_dimensions: int = Field(
-        default=1536, description="Embedding vector size (text-embedding-3-small=1536)."
+    embedding_dimensions: Literal[1536] = Field(
+        default=1536,
+        description="Embedding vector size (text-embedding-3-small=1536).",
     )
     retrieval_top_k: int = Field(
-        default=5, description="Number of context chunks each LightRAG query returns."
+        default=5,
+        ge=1,
+        description="Number of context chunks each LightRAG query returns.",
     )
-    rerank_top_k: int = Field(default=5, description="Maximum candidates kept after reranking.")
+    rerank_top_k: int = Field(
+        default=5,
+        ge=1,
+        description="Maximum candidates kept after reranking.",
+    )
     supabase_db_url: str = Field(
         description=(
             "Postgres URL for LangGraph checkpointer/store and the Movie/Person/Genre "

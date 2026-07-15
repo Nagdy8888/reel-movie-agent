@@ -8,7 +8,8 @@ COPY apps/agents ./apps/agents
 COPY apps/backend ./apps/backend
 RUN uv sync --frozen --package backend \
   && useradd --create-home appuser \
-  && chown -R appuser:appuser /app
+  && mkdir -p /data/lightrag \
+  && chown -R appuser:appuser /app /data/lightrag
 USER appuser
 ENV PATH="/app/.venv/bin:$PATH" \
     UV_NO_SYNC=1

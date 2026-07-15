@@ -28,7 +28,7 @@ export function FeatureGrid() {
           <FeatureCard
             icon="hub"
             title="Knowledge-graph answers"
-            description="Move beyond keyword search. Understand relationships between directors' early works and their modern influences."
+            description="Move beyond keyword search. Explore how movies connect through cast, genres, characters, and plot themes."
           />
           <FeatureCard
             icon="verified"

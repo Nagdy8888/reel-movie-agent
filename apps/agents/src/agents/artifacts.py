@@ -7,7 +7,6 @@ from functools import lru_cache
 from typing import Literal, TypedDict, cast
 
 from agents.projection import (
-    fetch_cast_names,
     fetch_full_projection,
     fetch_movie_neighbourhood,
     fetch_movies_by_ids,
@@ -25,7 +24,7 @@ _CAST_LINE = re.compile(r"Cast:\s*(.+?)(?:\n|$)", re.I)
 _POSTER_LINE = re.compile(r"Poster URL:\s*(https://\S+)", re.I)
 
 _MAX_GRAPH_MOVIES = 40
-_MAX_SOURCE_TAGS = 4
+_MAX_SOURCE_TAGS = 2
 
 
 class SourceArtifact(TypedDict):
@@ -99,8 +98,16 @@ def extract_movie_keys(candidates: list[str]) -> list[str]:
     except Exception:
         return []
 
-    blob_lower = blob.casefold()
-    matched = [title for title in titles if title and title.casefold() in blob_lower]
+    matched = [
+        title
+        for title in sorted(titles, key=len, reverse=True)
+        if title
+        and re.search(
+            rf"(?<!\w){re.escape(title)}(?!\w)",
+            blob,
+            flags=re.IGNORECASE,
+        )
+    ]
     if not matched:
         return []
     try:
@@ -243,7 +250,6 @@ def artifacts_from_movie_keys(movie_keys: list[str]) -> RetrievalArtifacts:
     bounded = movie_keys[:_MAX_GRAPH_MOVIES]
     try:
         movies, people, genres, acted_in, in_genre = fetch_movie_neighbourhood(bounded)
-        cast_map = fetch_cast_names(bounded, limit_per_movie=2)
     except Exception:
         return RetrievalArtifacts(sources=[], graph=empty)
 
@@ -251,6 +257,20 @@ def artifacts_from_movie_keys(movie_keys: list[str]) -> RetrievalArtifacts:
     nodes: dict[str, GraphNodeArtifact] = {}
     links: list[GraphLinkArtifact] = []
     link_keys: set[str] = set()
+    person_names = {person["id"]: person["name"] for person in people}
+    cast_map: dict[str, list[str]] = {movie["id"]: [] for movie in movies}
+    for edge in sorted(
+        acted_in,
+        key=lambda item: (
+            item["movie_id"],
+            item["billing_order"] if item["billing_order"] is not None else 2**31,
+            item["person_id"],
+        ),
+    ):
+        names = cast_map.setdefault(edge["movie_id"], [])
+        name = person_names.get(edge["person_id"])
+        if name and name not in names and len(names) < _MAX_SOURCE_TAGS:
+            names.append(name)
 
     for movie in movies:
         year = movie.get("year")

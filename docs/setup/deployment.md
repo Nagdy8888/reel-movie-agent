@@ -43,7 +43,9 @@ Frontend build-time public vars (e.g. Docker build-args / hosting env):
 
 **Never commit** `.env`, `apps/frontend/.env.local`, or service-role keys. Rotate OpenAI, Supabase, TMDB, and LangSmith credentials if they ever appear in logs or a leaked commit.
 
-Inside Compose, set `RAG_PG_HOST=rag-postgres` on `agent`/`backend` (mirrors the old in-network Neo4j URI override). Host-side `.env` keeps `RAG_PG_HOST=localhost` with port `5433`.
+Inside Compose, set `RAG_PG_HOST=rag-postgres` on `agent`/`backend`.
+Host-side `.env` keeps `RAG_PG_HOST=localhost` with port `55432`; Compose
+overrides app containers to `rag-postgres:5432`.
 
 ## Database / memory setup
 
@@ -86,7 +88,45 @@ Typical ports:
 | frontend | 3000 |
 | backend | 8000 |
 | agent (dev) | 2024 |
-| rag-postgres | 5433 → 5432 |
+| rag-postgres | 55432 → 5432 |
+
+## Production (EC2 + Vercel)
+
+| Piece | Where | How it updates |
+|-------|--------|----------------|
+| Backend + `rag-postgres` | EC2 (`/opt/reel`) | Push to `main` → CI builds/pushes GHCR images → SCP syncs compose → `deploy.sh` |
+| Frontend | Vercel project `reel-frontend` | Redeploy from `apps/frontend` (or linked Git) |
+| Supabase projection | Shared cloud DB | Already populated by local/hybrid ingest |
+
+### EC2 `.env` must include LightRAG vars
+
+On the host file `/opt/reel/.env` (read by Compose `env_file`), add at least:
+
+```bash
+RAG_PG_USER=lightrag
+RAG_PG_PASSWORD=<strong-secret>
+RAG_PG_DATABASE=lightrag
+RAG_PG_WORKSPACE=reel
+# Compose overrides host/port inside the backend container:
+#   RAG_PG_HOST=rag-postgres  RAG_PG_PORT=5432
+OPENAI_API_KEY=...
+SUPABASE_URL=...
+SUPABASE_DB_URL=...
+CORS_ALLOW_ORIGINS=https://reel-frontend-six.vercel.app
+APP_ENV=prod
+SUBSET_SIZE=503
+```
+
+Remove obsolete `NEO4J_*` keys. Backend readiness (`GET /ready` on the Caddy URL) fails until AGE Postgres is healthy **and** LightRAG has ingested data on that volume.
+
+### First LightRAG boot on a new EC2 volume
+
+Supabase projection can already have the 503-movie UI graph from a prior ingest, but the EC2 `rag_pg_data` volume starts empty. Either:
+
+1. **Re-ingest on the server** (costs OpenAI tokens again), e.g. run the ingest module against the compose network with `--limit 503`, or
+2. **Restore** a `pg_dump` of a known-good local `rag_pg_data` onto EC2.
+
+Until one of those is done, retrieval fails closed even if `/health` is fine.
 
 ## CI
 

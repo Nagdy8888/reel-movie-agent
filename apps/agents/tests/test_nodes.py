@@ -47,25 +47,37 @@ def test_converse_answers_without_retrieval_context() -> None:
 
 
 def test_retrieve_falls_back_for_empty_recommendation() -> None:
-    """An empty recommendation turn falls back to well-reviewed movies."""
+    """An empty recommendation turn falls back to top box-office movies."""
     state = {
         "messages": [HumanMessage(content="suggest me a film to watch")],
         "intent": "recommend",
     }
-    empty_artifacts = {"sources": [], "graph": {"nodes": [], "links": []}}
+    fallback_artifacts = {
+        "sources": [
+            {
+                "id": "movie:1",
+                "title": "Cloud Atlas",
+                "subtitle": None,
+                "year": "2012",
+                "poster_url": None,
+                "tags": [],
+            }
+        ],
+        "graph": {"nodes": [], "links": []},
+    }
     with (
         patch("agents.nodes.run_graph_query", return_value=""),
         patch("agents.nodes.run_semantic_search", return_value=[]),
         patch(
             "agents.nodes.run_recommendation_fallback",
-            return_value=["Movie: Cloud Atlas"],
+            return_value=["Movie: Cloud Atlas (2012) [movie:1]"],
         ) as fallback,
         patch("agents.nodes.run_rerank", side_effect=lambda _q, candidates: candidates),
-        patch("agents.nodes.build_retrieval_artifacts", return_value=empty_artifacts),
+        patch("agents.nodes.build_retrieval_artifacts", return_value=fallback_artifacts),
     ):
         update = retrieve(state)
     fallback.assert_called_once()
-    assert "Movie: Cloud Atlas" in update["context"]
+    assert "movie:1" in update["context"]
 
 
 def test_retrieve_no_fallback_for_empty_factual() -> None:
@@ -85,6 +97,24 @@ def test_retrieve_no_fallback_for_empty_factual() -> None:
         update = retrieve(state)
     fallback.assert_not_called()
     assert update["context"] == ""
+
+
+def test_retrieve_fails_closed_when_context_has_no_projection_movie() -> None:
+    """Unmappable LightRAG context is discarded before answer generation."""
+    state = {
+        "messages": [HumanMessage(content="tell me about a theme")],
+        "intent": "factual",
+    }
+    empty_artifacts = {"sources": [], "graph": {"nodes": [], "links": []}}
+    with (
+        patch("agents.nodes.run_graph_query", return_value="entity-only context"),
+        patch("agents.nodes.run_semantic_search", return_value=[]),
+        patch("agents.nodes.run_rerank", side_effect=lambda _q, candidates: candidates),
+        patch("agents.nodes.build_retrieval_artifacts", return_value=empty_artifacts),
+    ):
+        update = retrieve(state)
+    assert update["context"] == ""
+    assert "no projection movie recovered" in update["errors"][-1]
 
 
 def test_generate_fail_closed_on_empty_context() -> None:

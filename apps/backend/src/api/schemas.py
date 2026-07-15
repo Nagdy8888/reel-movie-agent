@@ -57,7 +57,7 @@ class SourceOut(BaseModel):
     subtitle: str | None = Field(default=None, description="Optional tagline or subtitle.")
     year: str | None = Field(default=None, description="Release year when known.")
     poster_url: str | None = Field(default=None, description="Optional movie poster image URL.")
-    tags: list[str] = Field(default_factory=list, description="Cast/director tags.")
+    tags: list[str] = Field(default_factory=list, description="Top-billed cast tags.")
 
 
 class GraphNodeOut(BaseModel):

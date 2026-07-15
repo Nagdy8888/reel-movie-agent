@@ -1,11 +1,34 @@
-# Production stack for EC2: backend image from GHCR + Caddy TLS terminator.
-# Neo4j (Aura) and Postgres (Supabase) stay off-box.
+# Production stack for EC2: backend + LightRAG AGE Postgres + Caddy TLS.
+# Supabase (auth, chat, checkpoints, UI projection) stays off-box.
 services:
+  rag-postgres:
+    image: ghcr.io/nagdy8888/reel-lightrag-postgres:latest
+    environment:
+      POSTGRES_USER: ${RAG_PG_USER}
+      POSTGRES_PASSWORD: ${RAG_PG_PASSWORD}
+      POSTGRES_DB: ${RAG_PG_DATABASE}
+    volumes:
+      - rag_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     image: ghcr.io/nagdy8888/reel-backend:latest
     env_file: [/opt/reel/.env]
     environment:
       APP_ENV: prod
+      RAG_PG_HOST: rag-postgres
+      RAG_PG_PORT: "5432"
+      LIGHTRAG_WORKING_DIR: /data/lightrag
+    volumes:
+      - lightrag_data:/data/lightrag
+    depends_on:
+      rag-postgres:
+        condition: service_healthy
     restart: unless-stopped
     expose: ["8000"]
 
@@ -20,5 +43,7 @@ services:
     depends_on: [backend]
 
 volumes:
+  rag_pg_data:
+  lightrag_data:
   caddy_data:
   caddy_config:

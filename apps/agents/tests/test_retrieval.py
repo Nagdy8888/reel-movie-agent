@@ -1,5 +1,7 @@
 """Unit tests for the LightRAG retrieval facade wrappers."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from agents import tools
@@ -70,3 +72,18 @@ def test_recommendation_fallback_formats_movie_keys(monkeypatch) -> None:
     assert len(rows) == 1
     assert "movie:1" in rows[0]
     assert "Hit" in rows[0]
+
+
+def test_rerank_preserves_untruncated_context_for_movie_key_recovery(monkeypatch) -> None:
+    """Reranking bounds its prompt but returns the original keyed context."""
+    candidate = f"{'x' * 3_000} movie:42"
+    fake_llm = SimpleNamespace(
+        invoke=lambda _prompt: SimpleNamespace(content="[0]"),
+    )
+    monkeypatch.setattr("agents.tools.get_utility_llm", lambda: fake_llm)
+    monkeypatch.setattr(
+        "agents.tools.get_settings",
+        lambda: SimpleNamespace(rerank_top_k=5),
+    )
+
+    assert tools.run_rerank("question", [candidate]) == [candidate]

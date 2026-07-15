@@ -110,9 +110,9 @@ test("answer graph is focused first and full graph loads on demand", async ({ pa
   expect(fullGraphRequests).toBe(0);
 
   await page
-    .getByPlaceholder("Ask about films, directors, or thematic connections...")
+    .getByPlaceholder("Ask about cast, genres, plots, or box office...")
     .fill("Suggest a science fiction film");
-  await page.getByPlaceholder("Ask about films, directors, or thematic connections...").press("Enter");
+  await page.getByPlaceholder("Ask about cast, genres, plots, or box office...").press("Enter");
 
   await expect(page.getByTestId("sigma-graph-ready")).toHaveText("2");
   await expect(page.getByText("2 nodes · 1 links")).toBeVisible();

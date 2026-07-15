@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from langchain_core.tools import BaseTool, tool
 
@@ -14,7 +13,6 @@ from agents.prompts.system import RERANK_SYSTEM_V1
 from agents.settings import get_settings
 
 MAX_CANDIDATE_CHARS = 2_500
-_CODE_FENCE = re.compile(r"^```(?:\w+)?\n([\s\S]*?)\n```$", re.MULTILINE)
 
 
 def strip_code_fences(text: str) -> str:
@@ -103,12 +101,12 @@ def run_rerank(question: str, candidates: list[str]) -> list[str]:
     try:
         raw = strip_code_fences(str(get_utility_llm().invoke(prompt).content))
         order = json.loads(raw)
-        picked = [bounded[i] for i in order if isinstance(i, int) and 0 <= i < len(bounded)]
+        picked = [candidates[i] for i in order if isinstance(i, int) and 0 <= i < len(candidates)]
         if picked:
             return picked[: settings.rerank_top_k]
-    except (ValueError, TypeError):
+    except Exception:
         pass
-    return bounded[: settings.rerank_top_k]
+    return candidates[: settings.rerank_top_k]
 
 
 @tool

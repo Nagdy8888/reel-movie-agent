@@ -13,9 +13,11 @@ from typing import Any
 import asyncpg
 import httpx
 from langsmith import traceable
+from lightrag.base import DocStatus
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from agents.lightrag_service import get_lightrag
+from agents.clients import configure_langsmith
+from agents.lightrag_service import finalize_lightrag, get_lightrag
 from agents.projection import movie_id_from_wikipedia, named_node_id, person_id_from_freebase
 from agents.settings import get_settings
 
@@ -103,7 +105,7 @@ def load_plot_summaries(path: Path) -> dict[str, str]:
             if len(parts) != 2:
                 continue
             wiki_id, summary = parts[0].strip(), parts[1].strip()
-            if wiki_id and summary:
+            if wiki_id.isdigit() and summary:
                 summaries[wiki_id] = summary
     return summaries
 
@@ -125,7 +127,7 @@ def load_movie_metadata(path: Path) -> dict[str, dict[str, Any]]:
                 continue
             wiki_id = cols[0].strip()
             title = cols[2].strip()
-            if not wiki_id or not title:
+            if not wiki_id.isdigit() or not title:
                 continue
             movies[wiki_id] = {
                 "title": title,
@@ -154,7 +156,7 @@ def load_character_metadata(path: Path) -> dict[str, list[CastMember]]:
             wiki_id = cols[0].strip()
             actor_name = cols[8].strip()
             freebase_actor_id = cols[12].strip()
-            if not wiki_id or not actor_name or not freebase_actor_id:
+            if not wiki_id.isdigit() or not actor_name or not freebase_actor_id:
                 continue
             character = cols[3].strip() or None
             members = cast_by_movie.setdefault(wiki_id, [])
@@ -210,7 +212,12 @@ def select_subset(
                 cast=cast,
             )
         )
-    records.sort(key=lambda m: (-(m.box_office or 0), m.wikipedia_id))
+    records.sort(
+        key=lambda movie: (
+            -(movie.box_office or 0),
+            int(movie.wikipedia_id),
+        )
+    )
     return records[:limit]
 
 
@@ -252,7 +259,11 @@ async def _fetch_poster_url(
     )
     if response.status_code == 429:
         retry_after = response.headers.get("Retry-After", "2")
-        await asyncio.sleep(float(retry_after))
+        try:
+            delay = max(0.0, float(retry_after))
+        except ValueError:
+            delay = 2.0
+        await asyncio.sleep(delay)
         raise _RetryableHTTPError("TMDB rate limited")
     if response.status_code >= 500:
         raise _RetryableHTTPError(f"TMDB server error {response.status_code}")
@@ -286,6 +297,8 @@ async def enrich_posters(movies: list[MovieRecord], *, concurrency: int) -> None
 
         async def _one(movie: MovieRecord) -> None:
             """Fetch and assign a poster for a single movie."""
+            if movie.poster_url:
+                return
             async with semaphore:
                 try:
                     movie.poster_url = await _fetch_poster_url(
@@ -300,111 +313,210 @@ async def enrich_posters(movies: list[MovieRecord], *, concurrency: int) -> None
         await asyncio.gather(*[_one(movie) for movie in movies])
 
 
-@traceable(name="upsert_projection")
-async def upsert_projection(movies: list[MovieRecord]) -> None:
-    """Idempotently write the UI projection tables in Supabase.
+@traceable(name="restore_existing_posters")
+async def restore_existing_posters(movies: list[MovieRecord]) -> None:
+    """Reuse stored poster URLs so resumptions avoid duplicate TMDB calls.
 
     Args:
-        movies: Selected subset with optional posters.
+        movies: Selected movies to enrich from the current projection.
     """
+    if not movies:
+        return
     settings = get_settings()
     conn = await asyncpg.connect(dsn=settings.supabase_db_url)
     try:
+        rows = await conn.fetch(
+            """
+            SELECT id, poster_url
+            FROM public.movies
+            WHERE id = ANY($1::text[]) AND poster_url IS NOT NULL
+            """,
+            [movie.movie_id for movie in movies],
+        )
+    finally:
+        await conn.close()
+    posters = {str(row["id"]): str(row["poster_url"]) for row in rows}
+    for movie in movies:
+        movie.poster_url = posters.get(movie.movie_id)
+
+
+@traceable(name="upsert_projection")
+async def upsert_projection(movies: list[MovieRecord]) -> None:
+    """Replace the UI projection with the selected deterministic subset.
+
+    Args:
+        movies: Authoritative selected subset with optional posters.
+    """
+    settings = get_settings()
+    movie_ids = [movie.movie_id for movie in movies]
+    people: dict[str, str] = {}
+    genres: dict[str, str] = {}
+    acted_in: dict[tuple[str, str], tuple[str | None, int]] = {}
+    in_genre: set[tuple[str, str]] = set()
+    for movie in movies:
+        for genre_name in movie.genres:
+            genre_id = named_node_id("genre", genre_name)
+            genres[genre_id] = genre_name
+            in_genre.add((movie.movie_id, genre_id))
+        for member in movie.cast:
+            people[member.person_id] = member.actor_name
+            acted_in.setdefault(
+                (member.person_id, movie.movie_id),
+                (member.character, member.billing_order),
+            )
+
+    conn = await asyncpg.connect(dsn=settings.supabase_db_url)
+    try:
         async with conn.transaction():
-            for movie in movies:
+            await conn.execute(
+                "DELETE FROM public.movies WHERE NOT (id = ANY($1::text[]))",
+                movie_ids,
+            )
+            await conn.execute(
+                """
+                INSERT INTO public.movies (
+                    id, wikipedia_id, title, year, box_office, poster_url, subtitle
+                )
+                SELECT rows.id, rows.wikipedia_id, rows.title, rows.year,
+                       rows.box_office, rows.poster_url, NULL::text
+                FROM unnest(
+                    $1::text[], $2::text[], $3::text[], $4::int[],
+                    $5::bigint[], $6::text[]
+                ) AS rows(
+                    id, wikipedia_id, title, year, box_office, poster_url
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    wikipedia_id = EXCLUDED.wikipedia_id,
+                    title = EXCLUDED.title,
+                    year = EXCLUDED.year,
+                    box_office = EXCLUDED.box_office,
+                    poster_url = COALESCE(
+                        EXCLUDED.poster_url,
+                        public.movies.poster_url
+                    ),
+                    subtitle = EXCLUDED.subtitle
+                """,
+                movie_ids,
+                [movie.wikipedia_id for movie in movies],
+                [movie.title for movie in movies],
+                [movie.year for movie in movies],
+                [movie.box_office for movie in movies],
+                [movie.poster_url for movie in movies],
+            )
+            await conn.execute(
+                "DELETE FROM public.acted_in WHERE movie_id = ANY($1::text[])",
+                movie_ids,
+            )
+            await conn.execute(
+                "DELETE FROM public.in_genre WHERE movie_id = ANY($1::text[])",
+                movie_ids,
+            )
+            if people:
                 await conn.execute(
                     """
-                    INSERT INTO public.movies (
-                        id, wikipedia_id, title, year, box_office, poster_url, subtitle
-                    ) VALUES ($1, $2, $3, $4, $5, $6, NULL)
+                    INSERT INTO public.people (id, name)
+                    SELECT rows.id, rows.name
+                    FROM unnest($1::text[], $2::text[]) AS rows(id, name)
                     ON CONFLICT (id) DO UPDATE SET
-                        title = EXCLUDED.title,
-                        year = EXCLUDED.year,
-                        box_office = EXCLUDED.box_office,
-                        poster_url = COALESCE(EXCLUDED.poster_url, public.movies.poster_url),
-                        subtitle = EXCLUDED.subtitle
+                        name = EXCLUDED.name
                     """,
-                    movie.movie_id,
-                    movie.wikipedia_id,
-                    movie.title,
-                    movie.year,
-                    movie.box_office,
-                    movie.poster_url,
+                    list(people),
+                    list(people.values()),
                 )
-                for genre_name in movie.genres:
-                    genre_id = named_node_id("genre", genre_name)
-                    await conn.execute(
-                        """
-                        INSERT INTO public.genres (id, name)
-                        VALUES ($1, $2)
-                        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-                        """,
-                        genre_id,
-                        genre_name,
+            if genres:
+                await conn.execute(
+                    """
+                    INSERT INTO public.genres (id, name)
+                    SELECT rows.id, rows.name
+                    FROM unnest($1::text[], $2::text[]) AS rows(id, name)
+                    ON CONFLICT (id) DO UPDATE SET
+                        name = EXCLUDED.name
+                    """,
+                    list(genres),
+                    list(genres.values()),
+                )
+            if acted_in:
+                acted_rows = [
+                    (person_id, movie_id, character, billing_order)
+                    for (person_id, movie_id), (character, billing_order) in acted_in.items()
+                ]
+                await conn.execute(
+                    """
+                    INSERT INTO public.acted_in (
+                        person_id, movie_id, character, billing_order
                     )
-                    await conn.execute(
-                        """
-                        INSERT INTO public.in_genre (movie_id, genre_id)
-                        VALUES ($1, $2)
-                        ON CONFLICT DO NOTHING
-                        """,
-                        movie.movie_id,
-                        genre_id,
+                    SELECT rows.person_id, rows.movie_id, rows.character,
+                           rows.billing_order
+                    FROM unnest(
+                        $1::text[], $2::text[], $3::text[], $4::int[]
+                    ) AS rows(
+                        person_id, movie_id, character, billing_order
                     )
-                for member in movie.cast:
-                    await conn.execute(
-                        """
-                        INSERT INTO public.people (id, name)
-                        VALUES ($1, $2)
-                        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-                        """,
-                        member.person_id,
-                        member.actor_name,
-                    )
-                    await conn.execute(
-                        """
-                        INSERT INTO public.acted_in (
-                            person_id, movie_id, character, billing_order
-                        ) VALUES ($1, $2, $3, $4)
-                        ON CONFLICT (person_id, movie_id) DO UPDATE SET
-                            character = EXCLUDED.character,
-                            billing_order = EXCLUDED.billing_order
-                        """,
-                        member.person_id,
-                        movie.movie_id,
-                        member.character,
-                        member.billing_order,
-                    )
+                    ON CONFLICT (person_id, movie_id) DO UPDATE SET
+                        character = EXCLUDED.character,
+                        billing_order = EXCLUDED.billing_order
+                    """,
+                    [row[0] for row in acted_rows],
+                    [row[1] for row in acted_rows],
+                    [row[2] for row in acted_rows],
+                    [row[3] for row in acted_rows],
+                )
+            if in_genre:
+                genre_rows = sorted(in_genre)
+                await conn.execute(
+                    """
+                    INSERT INTO public.in_genre (movie_id, genre_id)
+                    SELECT rows.movie_id, rows.genre_id
+                    FROM unnest(
+                        $1::text[], $2::text[]
+                    ) AS rows(movie_id, genre_id)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    [row[0] for row in genre_rows],
+                    [row[1] for row in genre_rows],
+                )
+            await conn.execute(
+                """
+                DELETE FROM public.people p
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.acted_in ai WHERE ai.person_id = p.id
+                )
+                """
+            )
+            await conn.execute(
+                """
+                DELETE FROM public.genres g
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.in_genre ig WHERE ig.genre_id = g.id
+                )
+                """
+            )
     finally:
         await conn.close()
 
 
-async def _is_processed(rag: Any, doc_id: str) -> bool:
-    """Return True if LightRAG already marked ``doc_id`` as processed."""
-    try:
-        status_store = rag.doc_status
-        if hasattr(status_store, "get_by_ids"):
-            rows = await status_store.get_by_ids([doc_id])
-            if not rows:
-                return False
-            entry = rows[0] if isinstance(rows, list) else rows.get(doc_id)
-            if entry is None:
-                return False
-            status = (
-                entry.get("status") if isinstance(entry, dict) else getattr(entry, "status", None)
-            )
-            return str(status).lower() in {"processed", "docstatus.processed"}
-        if hasattr(status_store, "get_doc_by_id"):
-            entry = await status_store.get_doc_by_id(doc_id)
-            if entry is None:
-                return False
-            status = (
-                entry.get("status") if isinstance(entry, dict) else getattr(entry, "status", None)
-            )
-            return str(status).lower() in {"processed", "docstatus.processed"}
-    except Exception:
-        return False
-    return False
+async def _processed_doc_ids(rag: Any, doc_ids: list[str]) -> set[str]:
+    """Return IDs that LightRAG reports as fully processed.
+
+    Args:
+        rag: Initialized LightRAG instance.
+        doc_ids: Stable movie document IDs to inspect.
+
+    Returns:
+        IDs whose status is ``DocStatus.PROCESSED``.
+    """
+    if not doc_ids:
+        return set()
+    statuses = await rag.aget_docs_by_ids(doc_ids)
+    processed: set[str] = set()
+    for doc_id, entry in statuses.items():
+        status = entry.get("status") if isinstance(entry, dict) else entry.status
+        if status == DocStatus.PROCESSED or str(status).lower() in {
+            "processed",
+            "docstatus.processed",
+        }:
+            processed.add(doc_id)
+    return processed
 
 
 @traceable(name="lightrag_insert_subset")
@@ -422,12 +534,13 @@ async def insert_into_lightrag(movies: list[MovieRecord], *, concurrency: int) -
     semaphore = asyncio.Semaphore(concurrency)
     inserted = 0
     lock = asyncio.Lock()
+    processed_ids = await _processed_doc_ids(rag, [movie.movie_id for movie in movies])
 
     async def _one(movie: MovieRecord) -> None:
         """Insert a single movie document when not already processed."""
         nonlocal inserted
         doc_id = movie.movie_id
-        if await _is_processed(rag, doc_id):
+        if doc_id in processed_ids:
             return
         year_part = f" ({movie.year})" if movie.year is not None else ""
         text = f"{movie.title}{year_part}\n\n{movie.summary}"
@@ -485,10 +598,8 @@ async def validate_load(movies: list[MovieRecord]) -> None:
     assert expected_ids <= loaded_ids, "projection missing selected movie IDs"
 
     rag = await get_lightrag()
-    processed = 0
-    for movie in movies:
-        if await _is_processed(rag, movie.movie_id):
-            processed += 1
+    processed_ids = await _processed_doc_ids(rag, [movie.movie_id for movie in movies])
+    processed = len(processed_ids)
     assert processed == len(movies), f"lightrag processed={processed} expected={len(movies)}"
     print(
         f"Validated: {movie_count} movies, {processed} LightRAG docs, referential integrity OK",
@@ -520,6 +631,7 @@ async def run_ingest(*, data_dir: Path, limit: int) -> None:
         raise RuntimeError("Subset selection produced zero movies")
     print(f"Selected {len(movies)} movies (limit={limit})", flush=True)
 
+    await restore_existing_posters(movies)
     await enrich_posters(movies, concurrency=settings.ingest_concurrency)
     posters = sum(1 for m in movies if m.poster_url)
     print(f"TMDB posters resolved: {posters}/{len(movies)}", flush=True)
@@ -535,6 +647,7 @@ async def run_ingest(*, data_dir: Path, limit: int) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point for hybrid CMU ingestion."""
+    configure_langsmith()
     parser = argparse.ArgumentParser(
         description="Ingest a CMU movie subset into LightRAG + Supabase."
     )
@@ -553,7 +666,15 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     settings = get_settings()
     limit = args.limit if args.limit is not None else settings.subset_size
-    asyncio.run(run_ingest(data_dir=args.data_dir, limit=limit))
+    asyncio.run(_run_cli(data_dir=args.data_dir, limit=limit))
+
+
+async def _run_cli(*, data_dir: Path, limit: int) -> None:
+    """Run ingestion and always finalize LightRAG storage clients."""
+    try:
+        await run_ingest(data_dir=data_dir, limit=limit)
+    finally:
+        await finalize_lightrag()
 
 
 if __name__ == "__main__":

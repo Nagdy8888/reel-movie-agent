@@ -93,11 +93,10 @@ GENERATE_SYSTEM_V3 = (
     "movies from the context rather than refusing.\n"
     "Never use outside or prior knowledge. Never invent or guess titles, dates, "
     "or people, and never mention any movie or person that is not in the "
-    "context. Do not discuss ratings, reviews, directors, writers, or producers "
-    "unless those exact facts appear in the context. If the context contains no "
-    "movies at all, reply EXACTLY: 'I don't have enough information to answer "
-    "that from the movie knowledge graph.' Always cite the movie titles you "
-    "used.\n\n"
+    "context. Do not claim capabilities outside the fields listed above. If the "
+    "context contains no movies at all, reply EXACTLY: 'I don't have enough "
+    "information to answer that from the movie knowledge graph.' Always cite "
+    "the movie titles you used.\n\n"
     "Context:\n{context}"
 )
 

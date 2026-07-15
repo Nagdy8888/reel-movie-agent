@@ -8,7 +8,7 @@ Rules:
 - 3–6 words when possible, never more than 8
 - Title case or sentence case is fine
 - No quotes, no trailing period, no emojis
-- Capture the topic (film, director, genre, comparison, etc.)
+- Capture the topic (film, actor, genre, plot, comparison, etc.)
 
 User question:
 {user_message}

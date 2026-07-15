@@ -1,10 +1,14 @@
 """Unit tests for CMU subset selection and ID quoting."""
 
 from pathlib import Path
+from types import SimpleNamespace
+
+from lightrag.base import DocStatus
 
 from agents.projection import movie_id_from_wikipedia, named_node_id, person_id_from_freebase
 from ingestion.ingest import (
     CastMember,
+    _processed_doc_ids,
     load_character_metadata,
     load_movie_metadata,
     load_plot_summaries,
@@ -74,3 +78,36 @@ def test_select_subset_is_deterministic(tmp_path: Path) -> None:
         character="Hero",
         billing_order=0,
     )
+
+
+def test_select_subset_breaks_ties_by_numeric_wikipedia_id() -> None:
+    """Wikipedia IDs use numeric rather than lexicographic tie ordering."""
+    cast = CastMember("Actor", "person:x", None, 0)
+    selected = select_subset(
+        {"10": "ten", "2": "two"},
+        {
+            "10": {"title": "Ten", "year": None, "box_office": 100, "genres": []},
+            "2": {"title": "Two", "year": None, "box_office": 100, "genres": []},
+        },
+        {"10": [cast], "2": [cast]},
+        limit=2,
+    )
+    assert [movie.wikipedia_id for movie in selected] == ["2", "10"]
+
+
+async def test_processed_doc_ids_uses_public_lightrag_status_api() -> None:
+    """Resume checks use ``aget_docs_by_ids`` and keep only processed docs."""
+
+    class FakeRag:
+        """Minimal LightRAG status facade."""
+
+        async def aget_docs_by_ids(self, ids: list[str]):
+            """Return one processed and one failed status."""
+            assert ids == ["movie:1", "movie:2"]
+            return {
+                "movie:1": {"status": DocStatus.PROCESSED},
+                "movie:2": SimpleNamespace(status=DocStatus.FAILED),
+            }
+
+    processed = await _processed_doc_ids(FakeRag(), ["movie:1", "movie:2"])
+    assert processed == {"movie:1"}

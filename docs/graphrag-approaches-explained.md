@@ -1524,19 +1524,18 @@ Microsoft GraphRAG could still be useful for a separate unstructured corpus
 such as thousands of reviews, interviews, scripts, or industry reports where
 questions ask for cross-document themes.
 
-### Why LightRAG is not necessary for the core movie graph
+### Why Reel still keeps a deterministic projection
 
-LightRAG is useful when relationships must be discovered from prose. Reel's
-main relationships are already known.
-
-It could be evaluated later for unstructured reviews or plot analyses, but it
-should not replace deterministic cast, crew, genre, and keyword ingestion.
+LightRAG is useful for discovering entities, relationships, and themes from
+plot prose, but its free-form extraction is not a stable UI schema. Reel
+therefore keeps cast and genre relationships deterministic in Supabase while
+using LightRAG for text retrieval.
 
 ### Best description of Reel's approach
 
-Reel is a **deterministic property-graph GraphRAG system with hybrid
-vector/full-text seed retrieval, Cypher neighborhood expansion, and a
-Text2Cypher path for structured questions**.
+Reel is a **hybrid LightRAG system with a deterministic relational graph
+projection**: LightRAG local/hybrid retrieval grounds answers in plot text,
+while Supabase provides stable Movie/Person/Genre sources and graph payloads.
 
 That is more precise than saying only "it uses GraphRAG."
 

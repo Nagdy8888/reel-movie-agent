@@ -138,11 +138,6 @@ def test_artifacts_from_movie_keys_hydrates_neighbourhood(monkeypatch) -> None:
             [{"movie_id": "movie:13", "genre_id": "genre:drama"}],
         ),
     )
-    monkeypatch.setattr(
-        "agents.artifacts.fetch_cast_names",
-        lambda _keys, limit_per_movie=2: {"movie:13": ["Tom Hanks"]},
-    )
-
     artifacts = artifacts_from_movie_keys(["movie:13"])
 
     assert artifacts["sources"][0]["id"] == "movie:13"

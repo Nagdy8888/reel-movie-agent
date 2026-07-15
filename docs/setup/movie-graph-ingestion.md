@@ -66,6 +66,24 @@ uv run python -m ingestion.ingest --limit 1000
 Each movie is inserted as its own LightRAG document with
 `ids=[file_paths]=[movie:{wikipedia_id}]` so retrieved context carries a
 recoverable key. Already-`processed` documents are skipped (restartable).
+Existing poster URLs are reused on reruns. `--limit` is authoritative for the
+Supabase projection: movies outside the selected deterministic prefix are
+pruned, with relationship rows removed by foreign-key cascades.
+
+### Current quota-limited state
+
+The 2026-07-15 run passed the 25-movie smoke ingest, then reached the OpenAI API
+limit during the 1,000-movie extraction. The largest fully processed
+deterministic prefix was finalized at 503 movies:
+
+```bash
+uv run python -m ingestion.ingest --limit 503
+```
+
+This produced 503/503 posters, 503 processed LightRAG documents, and a matching
+503-movie Supabase projection. Set `SUBSET_SIZE=503` until quota is available.
+To continue toward the original target, restore `SUBSET_SIZE=1000` and rerun;
+processed documents are skipped.
 
 ## Verification
 

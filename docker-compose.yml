@@ -1,12 +1,15 @@
 services:
   rag-postgres:
-    image: shangor/postgres-for-rag:v1.0
+    build:
+      context: .
+      dockerfile: apps/agents/Dockerfile.postgres
+    image: reel-lightrag-postgres:pg16-age1.5-vector
     environment:
       POSTGRES_USER: ${RAG_PG_USER}
       POSTGRES_PASSWORD: ${RAG_PG_PASSWORD}
       POSTGRES_DB: ${RAG_PG_DATABASE}
     ports:
-      - "5433:5432"
+      - "${RAG_PG_PORT}:5432"
     volumes:
       - rag_pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,6 +25,7 @@ services:
     env_file: [.env]
     environment:
       RAG_PG_HOST: rag-postgres
+      RAG_PG_PORT: 5432
     ports:
       - "2024:2024"
     volumes:
@@ -39,6 +43,7 @@ services:
     env_file: [.env]
     environment:
       RAG_PG_HOST: rag-postgres
+      RAG_PG_PORT: 5432
     ports:
       - "8000:8000"
     volumes:

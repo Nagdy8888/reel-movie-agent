@@ -1,8 +1,10 @@
 """Liveness and readiness endpoints."""
 
+import psycopg
 from fastapi import APIRouter, Request, Response, status
 
-from agents.clients import get_neo4j_driver
+from agents.lightrag_service import lightrag_ready
+from agents.settings import get_settings
 from api.schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
@@ -14,11 +16,25 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+def _supabase_ready() -> bool:
+    """Return True when the Supabase Postgres accepts a trivial query."""
+    settings = get_settings()
+    try:
+        with psycopg.connect(settings.supabase_db_url, connect_timeout=5) as conn:
+            conn.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
 @router.get("/ready", response_model=HealthResponse)
 async def ready(request: Request, response: Response) -> HealthResponse:
-    """Readiness: verify Neo4j and the checkpointer are reachable."""
+    """Readiness: verify LightRAG Postgres, Supabase, and the checkpointer."""
     try:
-        get_neo4j_driver().verify_connectivity()
+        if not await lightrag_ready():
+            raise RuntimeError("lightrag postgres unavailable")
+        if not _supabase_ready():
+            raise RuntimeError("supabase unavailable")
         _ = request.app.state.checkpointer
         return HealthResponse(status="ok")
     except Exception:  # noqa: BLE001 - readiness must never leak internals

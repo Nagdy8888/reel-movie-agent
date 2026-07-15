@@ -10,17 +10,14 @@ alwaysApply: true
 Every module, class, function, and method has a docstring (Google convention). This is enforced by ruff pydocstyle (`D` rules) — undocumented code fails lint. Do not disable `D` rules to bypass; write the docstring.
 
 ```python
-def escape_or_reject_cypher(query: str) -> str:
-    """Return the query if read-only, else raise.
+def extract_movie_keys(candidates: list[str]) -> list[str]:
+    """Collect unique movie:{wikipedia_id} keys from retrieval text.
 
     Args:
-        query: Candidate Cypher produced by the LLM.
+        candidates: Raw retrieval passages from LightRAG.
 
     Returns:
-        The validated read-only query.
-
-    Raises:
-        UnsafeCypherError: If the query contains write clauses.
+        De-duplicated movie keys in first-seen order.
     """
 ```
 

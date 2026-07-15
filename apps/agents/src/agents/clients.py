@@ -1,14 +1,44 @@
 """Cached, shared client factories for the agent."""
 
 from functools import lru_cache
+from types import SimpleNamespace
 
-import neo4j
 from langchain_openai import ChatOpenAI
-from neo4j_graphrag.embeddings import OpenAIEmbeddings
-from neo4j_graphrag.llm import OpenAILLM
+from langsmith.wrappers import wrap_openai
+from openai import AsyncOpenAI, OpenAI
 from pydantic import SecretStr
 
 from agents.settings import get_settings
+
+
+class UtilityLLM:
+    """Thin sync chat wrapper that never emits LangChain streaming events.
+
+    Used by the router and reranker so the backend SSE stream stays limited to
+    the final ``generate`` node.
+    """
+
+    def invoke(self, prompt: str) -> SimpleNamespace:
+        """Return a chat completion for the given prompt.
+
+        Args:
+            prompt: Fully formatted user/system prompt text.
+
+        Returns:
+            An object with a ``content`` attribute (OpenAI message text).
+        """
+        settings = get_settings()
+        response = get_sync_openai_client().chat.completions.create(
+            model=settings.openai_chat_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=settings.llm_max_tokens,
+            timeout=settings.llm_timeout_seconds,
+        )
+        content = ""
+        if response.choices:
+            content = response.choices[0].message.content or ""
+        return SimpleNamespace(content=content)
 
 
 @lru_cache(maxsize=1)
@@ -28,72 +58,27 @@ def get_chat_model() -> ChatOpenAI:
 
 
 @lru_cache(maxsize=1)
-def get_text2cypher_llm() -> OpenAILLM:
-    """Return the shared LLM used to generate Cypher for graph_query.
+def get_utility_llm() -> UtilityLLM:
+    """Return the shared non-streaming LLM for internal utility tasks.
 
-    Cached so the OpenAI client is created once, not per tool call.
+    Cached so the OpenAI client is created once, not per call.
     """
+    return UtilityLLM()
+
+
+@lru_cache(maxsize=1)
+def get_sync_openai_client() -> OpenAI:
+    """Return a LangSmith-wrapped sync OpenAI client."""
     settings = get_settings()
-    return OpenAILLM(
-        model_name=settings.openai_chat_model,
-        api_key=settings.openai_api_key,
-        timeout=settings.llm_timeout_seconds,
-        model_params={
-            "temperature": 0,
-            "max_tokens": settings.llm_max_tokens,
-        },
+    return wrap_openai(
+        OpenAI(api_key=settings.openai_api_key, timeout=settings.llm_timeout_seconds)
     )
 
 
 @lru_cache(maxsize=1)
-def get_utility_llm() -> OpenAILLM:
-    """Return the shared non-streaming LLM for internal utility tasks (reranking).
-
-    Uses neo4j-graphrag's ``OpenAILLM`` (not LangChain ``ChatOpenAI``) so its
-    calls never emit LangChain streaming events. This keeps the backend SSE
-    stream (Phase 5) limited to the final ``generate`` node. Cached so the
-    client is created once, not per call.
-    """
+def get_async_openai_client() -> AsyncOpenAI:
+    """Return a LangSmith-wrapped async OpenAI client for LightRAG calls."""
     settings = get_settings()
-    return OpenAILLM(
-        model_name=settings.openai_chat_model,
-        api_key=settings.openai_api_key,
-        timeout=settings.llm_timeout_seconds,
-        model_params={
-            "temperature": 0,
-            "max_tokens": settings.llm_max_tokens,
-        },
-    )
-
-
-@lru_cache(maxsize=1)
-def get_embedder() -> OpenAIEmbeddings:
-    """Return the shared OpenAI embedder for vector search.
-
-    Cached so the client is created once, not per semantic_search call.
-    """
-    settings = get_settings()
-    return OpenAIEmbeddings(
-        model=settings.openai_embed_model,
-        api_key=settings.openai_api_key,
-        timeout=settings.llm_timeout_seconds,
-    )
-
-
-@lru_cache(maxsize=1)
-def get_neo4j_driver() -> neo4j.Driver:
-    """Return the shared, pooled Neo4j driver.
-
-    Cached so a single connection pool is reused across the process. Callers
-    must NOT close it per request; it is closed on process shutdown.
-
-    Auth uses AgentSettings.neo4j_username (typically the admin `neo4j` user on
-    Community/Aura Free). Read-only access is enforced at the app layer via
-    execute_read + a write-clause guard; on Enterprise/Aura Pro, prefer a
-    dedicated read-only role for this driver instead.
-    """
-    settings = get_settings()
-    return neo4j.GraphDatabase.driver(
-        settings.neo4j_uri,
-        auth=(settings.neo4j_username, settings.neo4j_password),
+    return wrap_openai(
+        AsyncOpenAI(api_key=settings.openai_api_key, timeout=settings.llm_timeout_seconds)
     )

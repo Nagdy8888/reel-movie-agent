@@ -26,7 +26,7 @@ async def chat(
 - `response_model=` on **every** route (define models in `schemas.py`).
 - Auth dependency at the router level: `APIRouter(dependencies=[Depends(current_user)])`. Public routes are the explicit exception.
 - Rate-limit `/chat` (e.g. `slowapi`), per-IP and per-user.
-- `/health` (cheap liveness) and `/ready` (verifies Neo4j + checkpointer connectivity, returns 503 on failure).
+- `/health` (cheap liveness) and `/ready` (verifies LightRAG Postgres + Supabase + checkpointer, returns 503 on failure).
 - Build the graph eagerly in `lifespan` and stash in `app.state`; deps return it. Fail fast on misconfig.
 
 ## Cross-cutting middleware

@@ -1,16 +1,20 @@
 # Reel — GraphRAG Movie Assistant
 
-Reel is a uv-workspace monorepo for a movie Q&A and recommendation assistant. Natural-language questions are grounded in a Neo4j knowledge graph via hybrid GraphRAG (Text2Cypher + vector/full-text retrieval with graph expansion), served through a FastAPI backend with Supabase JWT auth, and consumed by a Next.js chat UI.
+Reel is a uv-workspace monorepo for a movie Q&A and recommendation assistant.
+Natural-language questions are grounded via **LightRAG** (local/hybrid
+context retrieval over a CMU MovieSummaries subset) plus a typed
+Movie/Person/Genre **Supabase projection** for the Sigma graph UI. A FastAPI
+backend with Supabase JWT auth serves the Next.js chat app.
 
 ## Monorepo layout
 
 | Path | Role |
 |------|------|
-| `apps/agents` | LangGraph deployable — graph, nodes, tools, prompts, Neo4j ingestion |
+| `apps/agents` | LangGraph deployable — graph, nodes, LightRAG retrieval, hybrid ingestion |
 | `apps/backend` | FastAPI HTTP layer — auth, chat SSE, chat history, readiness |
 | `apps/frontend` | Next.js App Router UI (chat, sources, graph canvas) |
 | `docs/` | Architecture notes, setup guides, reviews |
-| `scripts/` | Dataset build helpers and smoke utilities |
+| `datasets/MovieSummaries/` | CMU corpus (not committed; download locally) |
 
 **Placement rule:** graph/retrieval logic lives in `apps/agents`; HTTP transport lives in `apps/backend` (imports the compiled graph). No reverse imports.
 
@@ -18,8 +22,8 @@ Reel is a uv-workspace monorepo for a movie Q&A and recommendation assistant. Na
 
 - Python **3.11+** and [uv](https://docs.astral.sh/uv/)
 - Node **20+** and [pnpm](https://pnpm.io/) (frontend)
-- Docker (optional, for local Neo4j via `docker-compose`)
-- Accounts / keys: OpenAI, Neo4j (local or Aura), Supabase project (auth + Postgres)
+- Docker (for local AGE+pgvector Postgres via `docker-compose`)
+- Accounts / keys: OpenAI, Supabase (auth + Postgres), TMDB (posters), LangSmith (tracing)
 
 ## Quick start (local)
 
@@ -27,7 +31,7 @@ Reel is a uv-workspace monorepo for a movie Q&A and recommendation assistant. Na
 
 ```bash
 cp .env.example .env
-# Fill OPENAI_*, NEO4J_*, SUPABASE_*, CORS_ALLOW_ORIGINS, etc.
+# Fill OPENAI_*, RAG_PG_*, SUPABASE_*, TMDB_API_ACCESS_TOKEN, LANGSMITH_*, CORS_ALLOW_ORIGINS
 ```
 
 Frontend also needs `apps/frontend/.env.local` (not committed):
@@ -44,17 +48,14 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 uv sync --group dev
 ```
 
-### 3. Neo4j + movie graph
-
-Start Neo4j (Compose or Aura), then load the packaged graph and build indexes. Order matters:
+### 3. LightRAG Postgres + hybrid ingest
 
 ```bash
-# Optional local Neo4j
-docker compose up -d neo4j
+docker compose up -d rag-postgres
 
-# Load packaged subset into Neo4j, then embed + index
-uv run python -m ingestion.load_graph --replace-existing
-uv run python -m ingestion.build_index
+# Place CMU files under datasets/MovieSummaries/, then:
+uv run python -m ingestion.ingest --limit 25    # smoke
+# uv run python -m ingestion.ingest --limit 1000  # full (hours)
 ```
 
 Details: [docs/setup/movie-graph-ingestion.md](docs/setup/movie-graph-ingestion.md).
@@ -67,11 +68,11 @@ uv run uvicorn api.main:app --reload --app-dir apps/backend/src --port 8000
 
 - OpenAPI: `http://localhost:8000/docs`
 - Liveness: `GET /health`
-- Readiness: `GET /ready`
+- Readiness: `GET /ready` (LightRAG Postgres + Supabase + checkpointer)
 
 ### 5. Agent (LangGraph Studio / local CLI)
 
-Optional for graph debugging; production chat traffic goes through the **backend**, which compiles the graph with Postgres checkpointer + store:
+Optional for graph debugging; production chat traffic goes through the **backend**:
 
 ```bash
 cd apps/agents
@@ -98,39 +99,20 @@ See [docs/setup/deployment.md](docs/setup/deployment.md) for production topology
 
 ## Development commands
 
-| Command | Purpose |
-|---------|---------|
-| `uv run ruff check` / `uv run ruff format` | Lint / format |
-| `uv run pyright` | Type check |
-| `uv run pytest` | Agents + backend tests |
-| `pre-commit run --all-files` | Local git hooks (ruff + basic file hygiene) |
-
-CI runs lint → format check → pyright → pytest on every PR and push to `main` (`.github/workflows/ci.yml`).
-
-## Architecture (short)
-
-```
-Browser (Next.js)
-    │  Bearer JWT
-    ▼
-FastAPI (apps/backend)
-    │  builds graph with PostgresSaver + PostgresStore
-    ▼
-LangGraph: route → (converse | retrieve → generate)
-    │
-    ├─ Neo4j (movies, people, genres, keywords + vector/full-text indexes)
-    └─ Supabase Postgres (auth JWKS, chat tables, LangGraph memory)
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+uv run pytest
+pnpm --dir apps/frontend lint
+pnpm --dir apps/frontend tsc --noEmit
 ```
 
-Retrieval always grounds answers in graph context (fail-closed when empty). Generated Cypher is validated read-only before `execute_read`.
+## Architecture snapshot
 
-## Documentation
-
-- [Movie graph ingestion](docs/setup/movie-graph-ingestion.md)
-- [Deployment runbook](docs/setup/deployment.md)
-- [GraphRAG approaches](docs/graphrag-approaches-explained.md)
-- [Production readiness review](docs/PRODUCTION_READINESS_REVIEW.md)
-
-## License
-
-Proprietary / project-specific — set by the repository owner.
+- **Retrieval:** LightRAG `local` (facts) + `hybrid` (plot/theme), context-only;
+  movie keys recovered from `movie:{wikipedia_id}` file_path tokens, with a
+  title fallback against the projection.
+- **UI graph:** Supabase projection tables (not the LightRAG AGE graph).
+- **Memory / auth:** Supabase Postgres checkpointer/store + JWT.
+- **Tracing:** LangSmith for ingestion and query-time LLM calls.

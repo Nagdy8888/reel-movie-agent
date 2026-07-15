@@ -1498,44 +1498,27 @@ Changing a leaf can affect parent summaries up the tree.
 
 ## Recommendation for the Reel movie project
 
-The Reel source is structured:
+**Current implementation (2026-07):** Reel uses a **hybrid LightRAG +
+projection** design on a 1,000-movie CMU MovieSummaries subset:
 
-- movie metadata;
-- cast and crew records;
-- genres;
-- keywords;
-- ratings;
-- poster paths.
+1. Parse and join CMU TSV/TXT files; select a deterministic box-office subset.
+2. Insert **one LightRAG document per movie** (plot summary) with
+   `file_path=movie:{wikipedia_id}` into self-hosted AGE+pgvector Postgres.
+3. Upsert a typed **Movie/Person/Genre** projection into Supabase (metadata +
+   TMDB posters) for the Sigma UI.
+4. Retrieve with LightRAG `local` / `hybrid` (`only_need_context=True`).
+5. Recover movie keys via `movie:(\d+)` regex, then title fallback.
+6. Rerank passages; generate a grounded answer; hydrate sources/graph from the
+   projection.
 
-The graph relationships are already present in the dataset. An LLM does not
-need to rediscover them.
-
-### Recommended design
-
-1. Parse and validate the CSV files with Python.
-2. Create explicit Neo4j nodes and relationships.
-3. Build one composed text document per movie.
-4. Generate movie embeddings.
-5. Create vector and full-text indexes.
-6. Use hybrid retrieval to find movie seeds.
-7. Expand seeds through fixed Cypher.
-8. Use read-only Text2Cypher for exact graph questions.
-9. Rerank retrieved evidence when useful.
-10. Generate a final answer grounded in retrieved data.
+LightRAG's internal extraction graph powers text retrieval; the UI never reads
+it directly. Neo4j / Text2Cypher is no longer in the runtime path.
 
 ### Why Microsoft GraphRAG is not the first choice
 
-Running Standard Microsoft GraphRAG over movie overviews would ask an LLM to
-infer people, movies, themes, and relationships that already exist in CSV
-columns.
-
-That would:
-
-- increase indexing cost;
-- introduce extraction mistakes;
-- duplicate trusted structured information;
-- create community reports that the product may not need;
-- make updates more complicated.
+Running Standard Microsoft GraphRAG over movie overviews would still impose a
+heavy community-report and indexing cost that Reel does not need for a
+focused movie Q&A product.
 
 Microsoft GraphRAG could still be useful for a separate unstructured corpus
 such as thousands of reviews, interviews, scripts, or industry reports where

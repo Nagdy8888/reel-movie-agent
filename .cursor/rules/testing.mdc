@@ -10,7 +10,7 @@ Use `pytest` + `pytest-asyncio`. Every test has a docstring stating what it veri
 
 ## No live network
 
-Mock external services (OpenAI, Neo4j) in unit tests — no real API/DB calls. Use fakes/stubs for the LLM and a mocked Neo4j driver/session.
+Mock external services (OpenAI, LightRAG, Supabase/Postgres, TMDB) in unit tests — no real API/DB calls. Use fakes/stubs for the LLM and retrieval/projection layers.
 
 ## Backend route contract tests
 
@@ -25,6 +25,6 @@ async def test_chat_requires_auth(client):
 
 ## Priorities
 
-- Pure functions first: the Cypher-safety validator, prompt builders, state reducers.
+- Pure functions first: movie-key recovery, subset selection/ID quoting, prompt builders, state reducers.
 - Agent graph: use a checkpointer stub + fake LLM to assert node wiring and fail-closed behavior.
 - Cover error paths, not just the happy path.

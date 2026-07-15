@@ -7,7 +7,7 @@ alwaysApply: true
 
 uv-workspace monorepo. Everything lives under `apps/`:
 
-- **`apps/agents`** — the LangGraph deployable (the AI agent). Owns `apps/agents/langgraph.json` pointing at `src/agents/graph.py:graph`. Runnable with `langgraph dev` for Studio. Contains the graph, nodes, tools, prompts, `settings.py`, and `src/ingestion/` (Neo4j load + vector index).
+- **`apps/agents`** — the LangGraph deployable (the AI agent). Owns `apps/agents/langgraph.json` pointing at `src/agents/graph.py:graph`. Runnable with `langgraph dev` for Studio. Contains the graph, nodes, tools, prompts, `settings.py`, `lightrag_service.py`, and `src/ingestion/` (hybrid LightRAG + Supabase projection load).
 - **`apps/backend`** — the FastAPI HTTP layer. Declares `agents` as a workspace dependency and imports the compiled graph directly. Contains `src/api/` (main, middleware, deps, auth, schemas, settings, routes/).
 - **`apps/frontend`** — Next.js App Router app (ported from the Stitch export).
 

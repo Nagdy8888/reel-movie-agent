@@ -67,13 +67,14 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
 
     Reads from state:  messages, intent
     Writes to state:   context, errors
-    Side effects:      read-only Neo4j queries + non-streaming OpenAI calls
-                       (Text2Cypher generation and reranking)
+    Side effects:      LightRAG context retrieval (RAG Postgres + local/hybrid
+                       query) and one non-streaming rerank LLM call; projection
+                       reads for artifact hydration
     Failure mode:      returns {"context": "", "errors": [...]} on retrieval
                        failure so `generate` fails closed (never fabricates).
                        For a `recommend` turn that matched nothing, falls back
-                       to a set of well-reviewed movies so open-ended requests
-                       still yield real suggestions.
+                       to top box-office movies so open-ended requests still
+                       yield real suggestions.
     """
     question = _latest_question(state)
     errors: list[str] = []

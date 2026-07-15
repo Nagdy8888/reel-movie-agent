@@ -26,7 +26,7 @@ export function Hero() {
           Ask anything about movies.
         </h1>
         <p className="font-body-lg text-body-lg md:text-[20px] text-on-surface-variant max-w-2xl leading-relaxed">
-          Reel understands actors, directors, genres and plots — and connects the dots across a
+          Reel understands cast, genres, plots, and box office — and connects the dots across a
           film knowledge graph.
         </p>
         <div className="flex flex-col sm:flex-row gap-md mt-md">
@@ -50,7 +50,7 @@ export function Hero() {
             <input
               className="w-full bg-transparent border-none text-body-lg text-on-surface focus:ring-0 placeholder:text-outline-variant outline-none"
               disabled
-              placeholder="Find films similar to Blade Runner but directed by..."
+              placeholder="Sci-fi movies about survival, or who starred in..."
               type="text"
             />
             <button type="button" className="bg-surface-variant p-sm rounded-md text-primary ml-md" disabled>

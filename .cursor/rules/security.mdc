@@ -1,23 +1,17 @@
 ---
-description: Security guardrails - read-only Cypher, secrets, LLM limits, CORS, env
+description: Security guardrails - LightRAG RW role, projection auth, secrets, LLM limits, CORS, env
 alwaysApply: true
 ---
 
 # Security
 
-## Read-only Cypher (critical for GraphRAG)
+## LightRAG + projection data access
 
-Text2Cypher lets the LLM generate Cypher from user text. Never trust it blindly:
+LightRAG replaces Text2Cypher. Queries go through `aquery(..., only_need_context=True)` — the model never generates Cypher against the UI graph.
 
-- Connect the agent with a **dedicated read-only Neo4j role/user**.
-- Run generated queries inside `session.execute_read(...)`.
-- Reject any query containing write clauses before execution:
-
-```python
-WRITE = re.compile(r"\b(CREATE|MERGE|DELETE|SET|REMOVE|DROP|LOAD\s+CSV|CALL\s+\{)\b", re.I)
-if WRITE.search(query):
-    raise UnsafeCypherError(query)
-```
+- **RAG Postgres (AGE + pgvector):** the agent role is **read/write**. LightRAG's query path writes an LLM/response cache into `PGKVStorage`; ingestion also writes all four stores. Do not use a read-only role for this database.
+- **Supabase UI projection** (`movies`, `people`, `genres`, `acted_in`, `in_genre`): the backend reads over `SUPABASE_DB_URL` as the privileged `postgres` role (bypasses RLS). **Projection enforcement is the `/graph` (and chat) auth dependency**, not RLS. Keep RLS enabled with an `authenticated` SELECT policy anyway — that closes the PostgREST/Data API path and satisfies advisors.
+- Fail closed on empty retrieval: never invent movie facts when both `movie:{id}` recovery and the title fallback find nothing.
 
 ## Secrets & auth
 

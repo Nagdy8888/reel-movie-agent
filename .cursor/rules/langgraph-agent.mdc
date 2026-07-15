@@ -19,7 +19,7 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
 
     Reads from state:  messages
     Writes to state:   context
-    Side effects:      read-only Neo4j query
+    Side effects:      LightRAG context retrieval (RAG Postgres)
     Failure mode:      returns {"context": []} and flags an error
     """
 ```

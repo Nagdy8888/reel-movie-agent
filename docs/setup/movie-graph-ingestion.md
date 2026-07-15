@@ -1,92 +1,89 @@
-# Build and load the 5,000-movie graph
+# Hybrid CMU ingestion (LightRAG + Supabase projection)
 
-The application uses a deterministic 5,000-movie subset of the Kaggle Movies
-Dataset. Kaggle supplies trusted relationships, so ingestion maps the CSV data
-directly into Neo4j instead of asking an LLM to extract a graph.
+Reel ingests a **deterministic 1,000-movie** subset of the CMU MovieSummaries
+corpus two ways:
 
-## Graph schema
+1. **LightRAG (retrieval)** — full LLM extraction over each plot summary into a
+   self-hosted PostgreSQL 16.6+ with Apache AGE + pgvector.
+2. **Supabase projection (UI graph)** — typed `Movie` / `Person` / `Genre`
+   tables (with TMDB posters) that power the sources panel, result graph, and
+   full graph.
 
-- `Movie(tmdbId, title, year, overview, tagline, posterUrl, rating, voteCount, ...)`
-- `Person(tmdbId, name, profileUrl)`
-- `Genre(name)`
-- `Keyword(name)`
-- `ACTED_IN`, `DIRECTED`, `WROTE`, `PRODUCED`, `IN_GENRE`, and `HAS_KEYWORD`
+The two writes are not one atomic transaction. Correctness comes from
+idempotent upserts, resumable LightRAG doc status, and a post-load referential
+integrity check.
 
-Movie and Person identity is based on TMDB IDs. Titles and names are display
-values and are intentionally not unique.
+## Data files
+
+Download [CMU MovieSummaries](https://www.cs.cmu.edu/~ark/personas/) and unpack
+into `datasets/MovieSummaries/`:
+
+| File | Role |
+|------|------|
+| `plot_summaries.txt` | `wikipedia_id \\t summary` |
+| `movie.metadata.tsv` | title, release date, box office, genres JSON |
+| `character.metadata.tsv` | cast rows with Freebase actor IDs |
+
+## Subset selection
+
+Keep movies with a summary, joinable metadata, ≥1 cast row, and **non-null box
+office**. Sort by `box_office DESC, wikipedia_id ASC`, take `SUBSET_SIZE`
+(default 1000). Deterministic and repeatable.
+
+IDs:
+
+- `movie:{wikipedia_id}`
+- `person:{percent-quoted freebase_actor_id}`
+- `genre:{percent-quoted casefold(name)}`
 
 ## Prerequisites
 
-Put these Kaggle exports in one local directory:
+Configure `.env` from `.env.example`:
 
-- `movies_metadata.csv`
-- `credits.csv`
-- `keywords.csv`
+- `RAG_PG_*` — AGE+pgvector Postgres for LightRAG
+- `SUPABASE_DB_URL` — projection + LangGraph memory
+- `OPENAI_API_KEY`, `TMDB_API_ACCESS_TOKEN`, `LANGSMITH_*`
+- `INGEST_CONCURRENCY` (default 4), `SUBSET_SIZE` (default 1000)
 
-Configure `.env` with the Neo4j and OpenAI values documented in `.env.example`.
-The embedding model is `text-embedding-3-small` with 1,536 dimensions.
+Start the RAG database:
+
+```bash
+docker compose up -d rag-postgres
+```
 
 ## Run order
 
-Run all commands from the repository root:
+From the repository root:
 
-```powershell
-uv run python scripts/build_movies_graph.py "C:\path\to\kaggle" --limit 5000
-uv run python -m ingestion.load_graph --replace-existing --batch-size 200
-uv run python -m ingestion.build_index --batch-size 100
+```bash
+# Smoke (≈ minutes)
+uv run python -m ingestion.ingest --limit 25
+
+# Full subset (hours; ~$2–3 on gpt-4o-mini + embeddings)
+uv run python -m ingestion.ingest --limit 1000
 ```
 
-`--replace-existing` deletes the current Neo4j graph. It is deliberately
-required when obsolete sample nodes are present; omit it for an idempotent merge
-after the initial replacement.
-
-The generated asset is
-`apps/agents/src/agents/data/movies_subset.json.gz`. It is deterministic and
-included in the agents wheel.
-
-## Measured bundle
-
-The current package contains:
-
-- 5,000 Movie nodes
-- 35,419 Person nodes
-- 19 Genre nodes
-- 8,296 Keyword nodes
-- 48,734 total nodes
-- 136,709 total relationships
-
-This is below Aura Free's 200,000-node and 400,000-relationship limits.
-Embedding the current documents used exactly 1,152,639 input tokens. At
-`$0.02 / 1M` tokens, the one-time embedding cost is about `$0.0231`.
+Each movie is inserted as its own LightRAG document with
+`ids=[file_paths]=[movie:{wikipedia_id}]` so retrieved context carries a
+recoverable key. Already-`processed` documents are skipped (restartable).
 
 ## Verification
 
-The loader compares every node and relationship count with the bundle manifest
-and fails on any difference. The index builder drops incompatible indexes,
-writes vectors by `Movie.tmdbId`, and waits for these indexes to become online:
+The ingest CLI asserts:
 
-- `movie_plot_embeddings`: VECTOR, cosine, 1,536 dimensions
-- `movie_fulltext`: FULLTEXT over `title`, `tagline`, `overview`, and `embed_text`
+- Supabase `movies` count == selected subset size
+- No orphan `acted_in` / `in_genre` movie FKs
+- LightRAG processed-doc count == subset size
 
-Useful read-only checks:
+Manual checks:
 
-```cypher
-MATCH (m:Movie) RETURN count(m);
-MATCH ()-[r]->() RETURN type(r), count(r) ORDER BY type(r);
-SHOW INDEXES YIELD name, type, state, properties, options RETURN *;
-```
+- A context-only query returns text containing `movie:{id}` tokens
+- `/graph` returns Movies, People, Genres with `Acted In` / `In Genre` links
+- LangSmith shows token usage for ingestion and query-time LLM calls
 
-The frontend starts with the focused graph artifact streamed for the current
-answer. It does not request the complete graph during workspace startup.
-Selecting **Full Network** requests the authenticated complete graph once.
-FastAPI compresses the JSON response, Sigma.js renders it with WebGL, and
-ForceAtlas2 runs in a Web Worker so layout does not block the browser's main
-thread. Category visibility is applied with render reducers, so toggling a
-category does not rebuild the Graphology graph or restart layout.
+## Production note
 
-Run `pnpm --dir apps/frontend benchmark:graph` to repeat the complete-graph
-browser check; the benchmark explicitly opens Full Network before measuring.
-The focused-first implementation rendered 48,734 nodes and 136,709 links in
-6.28–7.31 seconds across headless Edge runs; a 100 ms responsiveness probe
-completed in 103–403 ms while worker layout was active. The benchmark also verifies that
-pan/zoom/reset work and category changes keep the loaded graph instance ready.
+Managed Postgres (including Supabase) **does not** offer Apache AGE. LightRAG's
+four stores must live on a self-hosted AGE+pgvector image (Compose service
+`rag-postgres`, or equivalent VM/container). The UI projection stays on
+Supabase.

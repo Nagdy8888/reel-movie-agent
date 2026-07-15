@@ -73,7 +73,7 @@ def _validate_env(settings: BackendSettings) -> None:
 async def lifespan(app: FastAPI):
     """Build graph memory + chat DB pool eagerly; close the pool on shutdown.
 
-    Fails fast if Neo4j/Postgres/OpenAI config is missing.
+    Fails fast if LightRAG Postgres/Supabase/OpenAI config is missing.
     """
     checkpointer = build_checkpointer()
     store = build_store()

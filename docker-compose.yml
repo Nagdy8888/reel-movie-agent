@@ -1,16 +1,16 @@
 services:
-  neo4j:
-    image: neo4j:5.24
+  rag-postgres:
+    image: shangor/postgres-for-rag:v1.0
     environment:
-      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD}"
-      NEO4J_PLUGINS: '["apoc"]'
+      POSTGRES_USER: ${RAG_PG_USER}
+      POSTGRES_PASSWORD: ${RAG_PG_PASSWORD}
+      POSTGRES_DB: ${RAG_PG_DATABASE}
     ports:
-      - "7474:7474"   # Browser (HTTP)
-      - "7687:7687"   # Bolt
+      - "5433:5432"
     volumes:
-      - neo4j_data:/data
+      - rag_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U ${RAG_PG_USER} -d ${RAG_PG_DATABASE}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -20,11 +20,17 @@ services:
       context: .
       dockerfile: apps/agents/Dockerfile
     env_file: [.env]
+    environment:
+      RAG_PG_HOST: rag-postgres
     ports:
       - "2024:2024"
     volumes:
-      - ./apps/agents:/app/apps/agents   # live-reload source
-      - ./.env:/app/.env:ro              # so langgraph.json "../../.env" resolves in-container
+      - ./apps/agents:/app/apps/agents
+      - ./.env:/app/.env:ro
+      - lightrag_data:/data/lightrag
+    depends_on:
+      rag-postgres:
+        condition: service_healthy
 
   backend:
     build:
@@ -32,11 +38,13 @@ services:
       dockerfile: apps/backend/Dockerfile
     env_file: [.env]
     environment:
-      NEO4J_URI: bolt://neo4j:7687     # talk to the neo4j service, not localhost
+      RAG_PG_HOST: rag-postgres
     ports:
       - "8000:8000"
+    volumes:
+      - lightrag_data:/data/lightrag
     depends_on:
-      neo4j:
+      rag-postgres:
         condition: service_healthy
 
   frontend:
@@ -53,4 +61,5 @@ services:
       - backend
 
 volumes:
-  neo4j_data:
+  rag_pg_data:
+  lightrag_data:

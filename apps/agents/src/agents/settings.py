@@ -1,6 +1,8 @@
 """Environment-backed configuration for the Reel agent."""
 
+from functools import cached_property
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,27 +28,61 @@ class AgentSettings(BaseSettings):
     )
     llm_timeout_seconds: float = Field(default=30.0, description="Per-call LLM timeout in seconds.")
     llm_max_tokens: int = Field(default=1024, description="Maximum tokens per LLM completion.")
-    neo4j_uri: str = Field(description="Neo4j Bolt URI.")
-    neo4j_username: str = Field(default="neo4j", description="Neo4j username.")
-    neo4j_password: str = Field(description="Neo4j password.")
-    neo4j_database: str = Field(default="neo4j", description="Neo4j database name.")
-    vector_index_name: str = Field(
-        default="movie_plot_embeddings", description="Neo4j vector index name."
+    rag_pg_host: str = Field(description="Host for the AGE+pgvector LightRAG Postgres.")
+    rag_pg_port: int = Field(default=5432, description="Port for the LightRAG Postgres.")
+    rag_pg_user: str = Field(description="Username for the LightRAG Postgres.")
+    rag_pg_password: str = Field(description="Password for the LightRAG Postgres.")
+    rag_pg_database: str = Field(description="Database name for the LightRAG Postgres.")
+    rag_pg_workspace: str = Field(
+        default="reel",
+        description="LightRAG POSTGRES_WORKSPACE isolation key.",
     )
-    fulltext_index_name: str = Field(
-        default="movie_fulltext",
-        description="Neo4j full-text index name used for hybrid seed retrieval.",
+    lightrag_working_dir: str = Field(
+        default="/data/lightrag",
+        description="Working directory for LightRAG logs and local artifacts.",
+    )
+    tmdb_api_access_token: str = Field(
+        default="",
+        description="TMDB v4 bearer token used to resolve movie posters during ingestion.",
+    )
+    subset_size: int = Field(
+        default=1000,
+        description="Number of CMU movies to ingest into LightRAG and the UI projection.",
+    )
+    ingest_concurrency: int = Field(
+        default=4,
+        description="Semaphore cap for parallel LightRAG extraction and TMDB poster calls.",
     )
     embedding_dimensions: int = Field(
         default=1536, description="Embedding vector size (text-embedding-3-small=1536)."
     )
     retrieval_top_k: int = Field(
-        default=5, description="Number of seed nodes each retriever returns."
+        default=5, description="Number of context chunks each LightRAG query returns."
     )
     rerank_top_k: int = Field(default=5, description="Maximum candidates kept after reranking.")
     supabase_db_url: str = Field(
-        description="Postgres URL for LangGraph checkpointer/store (Supabase)."
+        description=(
+            "Postgres URL for LangGraph checkpointer/store and the Movie/Person/Genre "
+            "UI projection tables (Supabase)."
+        )
     )
+    langsmith_tracing: bool = Field(
+        default=True, description="Whether LangSmith tracing is enabled."
+    )
+    langsmith_api_key: str = Field(default="", description="LangSmith API key.")
+    langsmith_project: str = Field(
+        default="reel-agent", description="LangSmith project name for traces."
+    )
+
+    @cached_property
+    def rag_db_url(self) -> str:
+        """Return an asyncpg DSN for the LightRAG Postgres readiness probe."""
+        user = quote_plus(self.rag_pg_user)
+        password = quote_plus(self.rag_pg_password)
+        return (
+            f"postgresql://{user}:{password}@{self.rag_pg_host}:"
+            f"{self.rag_pg_port}/{self.rag_pg_database}"
+        )
 
 
 def get_settings() -> AgentSettings:

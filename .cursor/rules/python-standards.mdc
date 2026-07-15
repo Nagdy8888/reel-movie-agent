@@ -13,7 +13,7 @@ alwaysApply: false
 
 ## Clients: cache and pool
 
-Never construct an LLM client, Neo4j driver, or DB connection per call/request:
+Never construct an LLM client, LightRAG instance, or DB connection per call/request:
 
 ```python
 from functools import lru_cache
@@ -24,7 +24,8 @@ def get_llm() -> ChatOpenAI:
     return ChatOpenAI(model=settings.model, timeout=30, max_tokens=1024)
 ```
 
-Use a pooled Neo4j driver and `AsyncConnectionPool` for Postgres.
+Reuse the process-wide `get_lightrag()` singleton and a pooled Postgres client
+(`asyncpg` / `psycopg`) for Supabase projection and checkpointer access.
 
 ## Async correctness
 

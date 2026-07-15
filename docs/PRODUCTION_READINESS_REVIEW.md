@@ -6,6 +6,15 @@
 **Scope:** `apps/agents` (LangGraph GraphRAG agent + ingestion), `apps/backend` (FastAPI HTTP layer), `apps/frontend` (Next.js App Router), repo/infra config (Docker, compose, uv, CI, git hygiene).
 **Goal:** Assess readiness for a production deployment — clean code, no duplicated functions/classes, maintainability, security, and documentation/docstring coverage. Findings are categorized by severity.
 
+**Companion docs:** [SYSTEM_DESIGN_REVIEW.md](SYSTEM_DESIGN_REVIEW.md) (architecture/scalability/resilience findings, severity-categorized) · [REPO_STRENGTHS.md](REPO_STRENGTHS.md) (what the repo does well).
+
+> **2026-07-15 update:** The stack migrated from Neo4j/Text2Cypher to LightRAG
+> (AGE+pgvector) + a Supabase Movie/Person/Genre projection. Findings that
+> mention Cypher `safety.py`, Neo4j read-only roles, or `load_graph` /
+> `build_index` are historical. Live controls: bounded LightRAG LLM calls,
+> JWT-gated `/graph` + chat, projection RLS for PostgREST, LangSmith tracing,
+> `/ready` checking LightRAG Postgres + Supabase + checkpointer.
+
 ---
 
 ## 1. Executive summary
@@ -26,7 +35,7 @@ This is a **well-engineered, production-leaning codebase** — considerably clea
 **Security controls already in place** (uncommon at this stage):
 
 - Supabase **JWT auth** (JWKS / RS256+ES256) applied at the router level; public routes are the explicit exception.
-- **Read-only Cypher** enforcement (write-clause guard + `session.execute_read`) for all LLM-generated queries.
+- **No LLM-generated Cypher** — LightRAG context-only retrieval; the RAG Postgres role is read/write (LLM cache). UI projection access is gated by JWT on `/graph`/chat (backend uses `SUPABASE_DB_URL`).
 - **Rate limiting** (`slowapi`) on `/chat`.
 - **Generic 500 body** + `request_id`; full trace logged server-side only (no `str(exc)` leakage).
 - **Security headers** middleware (`X-Content-Type-Options`, `X-Frame-Options`, HSTS, `Cache-Control: no-store`).

@@ -13,10 +13,10 @@ export interface ChatInputProps {
 }
 
 const DEFAULT_SUGGESTIONS = [
-  "Who directed The Matrix?",
-  "What movies did Tom Hanks act in?",
-  "What is the highest rated movie by review?",
-  "Movie about a man alone at the edge of the world",
+  "Who starred in The Hunger Games?",
+  "Sci-fi movies about survival",
+  "Highest box-office movies",
+  "A movie about a taxi driver and a saxophonist",
 ];
 
 /** Auto-growing textarea with send button and optional suggestion chips. */
@@ -64,7 +64,7 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             disabled={disabled}
             className="w-full bg-transparent border-none text-on-surface font-body-lg text-body-lg p-md pr-[60px] resize-none focus:ring-0 min-h-[56px] max-h-[200px] thin-scrollbar"
-            placeholder="Ask about films, directors, or thematic connections..."
+            placeholder="Ask about cast, genres, plots, or box office..."
             rows={1}
           />
           <button

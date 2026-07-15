@@ -33,3 +33,11 @@ def test_generate_v3_supports_recommendations_and_context() -> None:
     prompt = GENERATE_SYSTEM_V3.format(context="Cloud Atlas (2012)")
     assert "Cloud Atlas (2012)" in prompt
     assert "DO recommend" in prompt
+    assert "box office" in prompt
+
+
+def test_router_prompt_advertises_cmu_capabilities() -> None:
+    """Router copy matches the CMU hybrid load (no ratings/directors)."""
+    assert "box office" in ROUTER_SYSTEM_V1
+    assert "directors" not in ROUTER_SYSTEM_V1
+    assert "ratings" not in ROUTER_SYSTEM_V1

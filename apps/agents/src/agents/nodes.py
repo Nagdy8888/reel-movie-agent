@@ -15,6 +15,7 @@ from agents.prompts.system import (
 from agents.state import AgentState, GenerateUpdate, RetrieveUpdate, RouteUpdate
 from agents.tools import (
     run_graph_query,
+    run_projection_grounding,
     run_recommendation_fallback,
     run_rerank,
     run_semantic_search,
@@ -114,6 +115,19 @@ def retrieve(state: AgentState) -> RetrieveUpdate:
     if candidates and not artifacts["sources"]:
         errors.append("retrieve: no projection movie recovered from context")
         candidates = []
+    elif artifacts["sources"]:
+        # LightRAG plot entities are often characters; inject typed cast/genres
+        # from the Supabase projection so "who starred in …" is answerable.
+        try:
+            movie_ids = [str(source["id"]) for source in artifacts["sources"]]
+            projection_blocks = run_projection_grounding(movie_ids)
+            if projection_blocks:
+                candidates = [
+                    "[Projection facts]\n" + "\n\n".join(projection_blocks),
+                    *candidates,
+                ]
+        except Exception as exc:
+            errors.append(f"projection_grounding: {exc}")
     return {
         "context": "\n\n".join(candidates)[:MAX_GENERATION_CONTEXT_CHARS],
         "sources": cast(list[dict[str, Any]], artifacts["sources"]),

@@ -75,6 +75,18 @@ def run_recommendation_fallback(limit: int | None = None) -> list[str]:
     return run_sync(retrieval.recommendation_fallback(limit))
 
 
+def run_projection_grounding(movie_ids: list[str]) -> list[str]:
+    """Load typed cast/genre/year facts for recovered movie keys.
+
+    Args:
+        movie_ids: Projection ``movie:{wikipedia_id}`` keys.
+
+    Returns:
+        Formatted grounding passages to prepend before LightRAG context.
+    """
+    return run_sync(retrieval.projection_grounding_for_movies(movie_ids))
+
+
 def run_rerank(question: str, candidates: list[str]) -> list[str]:
     """Reorder candidates by relevance to the question, keeping the top-k.
 

@@ -7,6 +7,7 @@ from agents.projection import (
     fetch_cast_names,
     fetch_top_box_office_movies,
     format_movie_context,
+    format_projection_grounding,
 )
 from agents.settings import get_settings
 
@@ -49,5 +50,21 @@ async def recommendation_fallback(limit: int | None = None) -> list[str]:
     settings = get_settings()
     top_k = limit if limit is not None else settings.retrieval_top_k
     movies = fetch_top_box_office_movies(top_k)
-    cast_map = fetch_cast_names([m["id"] for m in movies], limit_per_movie=12)
+    cast_map = fetch_cast_names(
+        [m["id"] for m in movies],
+        limit_per_movie=12,
+        include_characters=True,
+    )
     return [format_movie_context(movie, cast=cast_map.get(movie["id"], [])) for movie in movies]
+
+
+async def projection_grounding_for_movies(movie_ids: list[str]) -> list[str]:
+    """Return typed projection facts for recovered movie keys.
+
+    Args:
+        movie_ids: ``movie:{wikipedia_id}`` keys from retrieval artifacts.
+
+    Returns:
+        Formatted grounding blocks (cast/genres/year/box office).
+    """
+    return format_projection_grounding(movie_ids)

@@ -117,6 +117,45 @@ def test_retrieve_fails_closed_when_context_has_no_projection_movie() -> None:
     assert "no projection movie recovered" in update["errors"][-1]
 
 
+def test_retrieve_injects_projection_grounding_for_recovered_movies() -> None:
+    """Recovered movies get typed cast/genre facts prepended for generate."""
+    state = {
+        "messages": [HumanMessage(content="Who starred in The Hunger Games?")],
+        "intent": "factual",
+    }
+    artifacts = {
+        "sources": [
+            {
+                "id": "movie:31186339",
+                "title": "The Hunger Games",
+                "subtitle": None,
+                "year": "2012",
+                "poster_url": None,
+                "tags": [],
+            }
+        ],
+        "graph": {"nodes": [], "links": []},
+    }
+    with (
+        patch("agents.nodes.run_graph_query", return_value="Katniss Everdeen entity"),
+        patch("agents.nodes.run_semantic_search", return_value=[]),
+        patch("agents.nodes.run_rerank", side_effect=lambda _q, candidates: candidates),
+        patch("agents.nodes.build_retrieval_artifacts", return_value=artifacts),
+        patch(
+            "agents.nodes.run_projection_grounding",
+            return_value=[
+                "Movie: The Hunger Games (2012) [movie:31186339]\n"
+                "Cast: Jennifer Lawrence as Katniss Everdeen"
+            ],
+        ) as grounding,
+    ):
+        update = retrieve(state)
+    grounding.assert_called_once_with(["movie:31186339"])
+    assert update["context"].startswith("[Projection facts]")
+    assert "Jennifer Lawrence as Katniss Everdeen" in update["context"]
+    assert "Katniss Everdeen entity" in update["context"]
+
+
 def test_generate_fail_closed_on_empty_context() -> None:
     """Without retrieval context, generate returns I-don't-know (no LLM call)."""
     state = {"messages": [HumanMessage(content="Who directed Inception?")]}

@@ -174,22 +174,29 @@ def fetch_movies_by_titles(titles: list[str]) -> list[MovieRow]:
     return result
 
 
-def fetch_cast_names(movie_ids: list[str], *, limit_per_movie: int = 2) -> dict[str, list[str]]:
+def fetch_cast_names(
+    movie_ids: list[str],
+    *,
+    limit_per_movie: int = 2,
+    include_characters: bool = False,
+) -> dict[str, list[str]]:
     """Return top-billed actor names for each movie.
 
     Args:
         movie_ids: Movie projection IDs.
-        limit_per_movie: Maximum actor names per movie.
+        limit_per_movie: Maximum cast entries per movie.
+        include_characters: When true, format entries as
+            ``Actor as Character`` when a character name exists.
 
     Returns:
-        Mapping of movie_id → actor name list.
+        Mapping of movie_id → cast display strings.
     """
     if not movie_ids:
         return {}
     with get_projection_pool().connection() as conn:
         rows = conn.execute(
             """
-            SELECT ai.movie_id, p.name, ai.billing_order
+            SELECT ai.movie_id, p.name, ai.character, ai.billing_order
             FROM public.acted_in ai
             JOIN public.people p ON p.id = ai.person_id
             WHERE ai.movie_id = ANY(%s)
@@ -204,9 +211,59 @@ def fetch_cast_names(movie_ids: list[str], *, limit_per_movie: int = 2) -> dict[
         if len(names) >= limit_per_movie:
             continue
         name = str(row["name"]).strip()
+        if not name:
+            continue
+        character = row.get("character")
+        character_text = str(character).strip() if character else ""
+        entry = f"{name} as {character_text}" if include_characters and character_text else name
+        if entry not in names:
+            names.append(entry)
+    return result
+
+
+def format_projection_grounding(
+    movie_ids: list[str],
+    *,
+    cast_limit: int = 12,
+) -> list[str]:
+    """Build projection-backed grounding blocks for recovered movies.
+
+    LightRAG plot extraction often yields character entities without actor
+    names. These blocks supply year, box office, genres, and cast so
+    factual questions like "who starred in …" can be answered.
+
+    Args:
+        movie_ids: Recovered ``movie:{wikipedia_id}`` keys.
+        cast_limit: Max cast entries per movie.
+
+    Returns:
+        One formatted context string per movie (possibly empty).
+    """
+    if not movie_ids:
+        return []
+    movies, _people, genres, _acted_in, in_genre = fetch_movie_neighbourhood(movie_ids)
+    if not movies:
+        return []
+    genre_names = {g["id"]: g["name"] for g in genres}
+    genres_by_movie: dict[str, list[str]] = {m["id"]: [] for m in movies}
+    for edge in in_genre:
+        names = genres_by_movie.setdefault(edge["movie_id"], [])
+        name = genre_names.get(edge["genre_id"])
         if name and name not in names:
             names.append(name)
-    return result
+    cast_map = fetch_cast_names(
+        [m["id"] for m in movies],
+        limit_per_movie=cast_limit,
+        include_characters=True,
+    )
+    return [
+        format_movie_context(
+            movie,
+            cast=cast_map.get(movie["id"], []),
+            genres=genres_by_movie.get(movie["id"], []),
+        )
+        for movie in movies
+    ]
 
 
 def fetch_movie_neighbourhood(

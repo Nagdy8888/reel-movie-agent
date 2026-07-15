@@ -109,12 +109,51 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GHCR_USER,GHCR_TOKEN
+          envs: GHCR_USER,GHCR_TOKEN,RAG_PG_USER,RAG_PG_PASSWORD,RAG_PG_DATABASE
           script: |
             set -euo pipefail
             echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            # Upsert LightRAG keys into /opt/reel/.env (Compose interpolates them).
+            # Set GitHub Actions secrets RAG_PG_USER / RAG_PG_PASSWORD / RAG_PG_DATABASE.
+            upsert_env() {
+              local key="$1" val="$2" file=/opt/reel/.env
+              sudo touch "$file"
+              sudo chmod 600 "$file"
+              if sudo grep -q "^${key}=" "$file"; then
+                sudo sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+              else
+                echo "${key}=${val}" | sudo tee -a "$file" >/dev/null
+              fi
+            }
+            if [[ -n "${RAG_PG_PASSWORD:-}" ]]; then
+              upsert_env RAG_PG_USER "${RAG_PG_USER:-lightrag}"
+              upsert_env RAG_PG_PASSWORD "$RAG_PG_PASSWORD"
+              upsert_env RAG_PG_DATABASE "${RAG_PG_DATABASE:-lightrag}"
+              upsert_env RAG_PG_HOST rag-postgres
+              upsert_env RAG_PG_PORT 5432
+              upsert_env LIGHTRAG_WORKING_DIR /data/lightrag
+            fi
+
+            # Empty-password first boot leaves a broken data dir. Wipe only when
+            # the prior rag-postgres container exists and is unhealthy.
+            if sudo docker inspect --format '{{.State.Health.Status}}' reel-rag-postgres-1 2>/dev/null | grep -qx unhealthy; then
+              echo "rag-postgres unhealthy (likely empty POSTGRES_PASSWORD init) — resetting volume once"
+              sudo docker compose -f /opt/reel/docker-compose.prod.yml down || true
+              sudo docker volume rm reel_rag_pg_data || true
+            fi
+
+            # Empty-password first boot corrupts the data dir — reset once if still empty.
+            if ! sudo grep -q '^RAG_PG_PASSWORD=.\+' /opt/reel/.env; then
+              echo "ERROR: RAG_PG_PASSWORD missing in /opt/reel/.env and secret RAG_PG_PASSWORD unset." >&2
+              exit 1
+            fi
+
             chmod +x /opt/reel/deploy.sh
             sudo bash /opt/reel/deploy.sh
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAG_PG_USER: ${{ secrets.RAG_PG_USER }}
+          RAG_PG_PASSWORD: ${{ secrets.RAG_PG_PASSWORD }}
+          RAG_PG_DATABASE: ${{ secrets.RAG_PG_DATABASE }}

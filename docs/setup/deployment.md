@@ -100,21 +100,36 @@ Typical ports:
 
 ### EC2 `.env` must include LightRAG vars
 
-On the host file `/opt/reel/.env` (read by Compose `env_file`), add at least:
+Compose interpolates `${RAG_PG_USER}` / `${RAG_PG_PASSWORD}` / `${RAG_PG_DATABASE}`
+from **`/opt/reel/.env`**. If those keys are missing, `rag-postgres` starts with a blank
+`POSTGRES_PASSWORD` and the deploy fails with `container reel-rag-postgres-1 is unhealthy`.
+
+Add at least:
 
 ```bash
 RAG_PG_USER=lightrag
 RAG_PG_PASSWORD=<strong-secret>
 RAG_PG_DATABASE=lightrag
-RAG_PG_WORKSPACE=reel
-# Compose overrides host/port inside the backend container:
-#   RAG_PG_HOST=rag-postgres  RAG_PG_PORT=5432
+RAG_PG_HOST=rag-postgres
+RAG_PG_PORT=5432
+LIGHTRAG_WORKING_DIR=/data/lightrag
 OPENAI_API_KEY=...
 SUPABASE_URL=...
 SUPABASE_DB_URL=...
 CORS_ALLOW_ORIGINS=https://reel-frontend-six.vercel.app
 APP_ENV=prod
 SUBSET_SIZE=503
+```
+
+CI also upserts `RAG_PG_*` from GitHub Actions secrets `RAG_PG_USER`,
+`RAG_PG_PASSWORD`, and `RAG_PG_DATABASE` during the SSH deploy step.
+
+After a failed empty-password boot, wipe the bad volume once before retrying:
+
+```bash
+sudo docker compose -f /opt/reel/docker-compose.prod.yml down
+sudo docker volume rm reel_rag_pg_data
+sudo bash /opt/reel/deploy.sh
 ```
 
 Remove obsolete `NEO4J_*` keys. Backend readiness (`GET /ready` on the Caddy URL) fails until AGE Postgres is healthy **and** LightRAG has ingested data on that volume.

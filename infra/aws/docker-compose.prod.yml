@@ -1,19 +1,24 @@
 # Production stack for EC2: backend + LightRAG AGE Postgres + Caddy TLS.
 # Supabase (auth, chat, checkpoints, UI projection) stays off-box.
+#
+# Compose interpolates ${RAG_PG_*} from /opt/reel/.env (must exist next to this file).
 services:
   rag-postgres:
     image: ghcr.io/nagdy8888/reel-lightrag-postgres:latest
+    env_file: [/opt/reel/.env]
     environment:
-      POSTGRES_USER: ${RAG_PG_USER}
-      POSTGRES_PASSWORD: ${RAG_PG_PASSWORD}
-      POSTGRES_DB: ${RAG_PG_DATABASE}
+      POSTGRES_USER: ${RAG_PG_USER:-lightrag}
+      # Fail fast if password missing — empty POSTGRES_PASSWORD leaves Postgres unhealthy.
+      POSTGRES_PASSWORD: ${RAG_PG_PASSWORD:?Set RAG_PG_PASSWORD in /opt/reel/.env}
+      POSTGRES_DB: ${RAG_PG_DATABASE:-lightrag}
     volumes:
       - rag_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 20s
     restart: unless-stopped
 
   backend:

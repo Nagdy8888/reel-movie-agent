@@ -63,6 +63,7 @@ export function ChatInput({
             }}
             onKeyDown={handleKeyDown}
             disabled={disabled}
+            aria-label="Message Reel"
             className="w-full bg-transparent border-none text-on-surface font-body-lg text-body-lg p-md pr-[60px] resize-none focus:ring-0 min-h-[56px] max-h-[200px] thin-scrollbar"
             placeholder="Ask about cast, genres, plots, or box office..."
             rows={1}
@@ -71,6 +72,7 @@ export function ChatInput({
             type="button"
             onClick={onSend}
             disabled={disabled || !value.trim()}
+            aria-label="Send message"
             className="absolute right-sm bottom-sm w-10 h-10 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center hover:brightness-110 transition-all flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <MaterialIcon name="arrow_upward" size={20} />

@@ -1,12 +1,9 @@
-import type { MessageBubbleProps } from "./MessageBubble";
+"use client";
+
+import { useEffect, useRef } from "react";
+import type { ChatMessage } from "@/lib/chatTypes";
 import { MessageBubble } from "./MessageBubble";
 import { ThinkingIndicator } from "./ThinkingIndicator";
-
-export interface ChatMessage
-  extends Omit<MessageBubbleProps, "citations" | "selectedCitationId" | "onCitationSelect"> {
-  id: string;
-  citations?: MessageBubbleProps["citations"];
-}
 
 export interface ChatThreadProps {
   messages: ChatMessage[];
@@ -22,8 +19,20 @@ export function ChatThread({
   selectedCitationId,
   onCitationSelect,
 }: ChatThreadProps) {
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [isThinking, messages]);
+
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar p-md flex flex-col gap-lg w-full">
+    <div
+      className="flex-1 min-h-0 overflow-y-auto thin-scrollbar p-md flex flex-col gap-lg w-full"
+      aria-live="polite"
+      aria-relevant="additions text"
+      aria-busy={isThinking}
+      aria-label="Conversation transcript"
+    >
       {messages.map((msg) => (
         <MessageBubble
           key={msg.id}
@@ -35,6 +44,7 @@ export function ChatThread({
         />
       ))}
       {isThinking && <ThinkingIndicator />}
+      <div ref={endRef} aria-hidden="true" />
     </div>
   );
 }

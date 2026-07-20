@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test tests/chat-ux.spec.ts tests/graph-focused.spec.ts",
     "benchmark:graph": "playwright test tests/graph-performance.spec.ts"
   },
   "dependencies": {

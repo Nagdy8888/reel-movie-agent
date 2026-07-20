@@ -119,8 +119,9 @@ handled in a separate Supabase hardening change.
 ## Release gate
 
 - Python lint/format/type/tests must pass.
-- Frontend ESLint, TypeScript, Vitest, production build, and
-  focused/performance Playwright tests must pass in CI.
+- Frontend ESLint, TypeScript, Vitest, production build, and focused
+  Playwright tests must pass in CI. Run the 48,734-node performance benchmark
+  manually or on a dedicated schedule to avoid shared-runner timing variance.
 - `docker compose config` and the `rag-postgres` healthcheck must pass.
 - 25-movie smoke ingest must pass.
 - The current 503-movie subset must pass validation; a full 1,000-movie ingest

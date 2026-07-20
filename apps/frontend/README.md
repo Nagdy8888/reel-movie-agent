@@ -63,10 +63,13 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm test:e2e:ci
 pnpm test:e2e
 pnpm benchmark:graph
 ```
 
 Vitest covers SSE parsing and the pure chat/graph helpers. Playwright uses a
 development-only server guard bypass with mocked browser/API sessions; the
-bypass is unavailable in production.
+bypass is unavailable in production. CI runs the deterministic UX specs;
+`benchmark:graph` keeps the 48,734-node performance threshold separate from
+shared-runner load variance.

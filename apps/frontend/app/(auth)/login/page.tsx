@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { MaterialIcon } from "@/components/MaterialIcon";
 
-type AuthView = "signin" | "signup";
+type AuthView = "signin" | "signup" | "forgot" | "updatePassword";
 
 /** Sign-in / sign-up page with Supabase auth. */
 export default function LoginPage() {
@@ -18,6 +18,21 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const isPasswordRecovery = params.get("reset") === "1";
+    queueMicrotask(() => {
+      if (isPasswordRecovery) setView("updatePassword");
+      if (params.has("error")) {
+        setError("The authentication link is invalid or expired. Please try again.");
+      }
+    });
+
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session && !isPasswordRecovery) router.replace("/chat");
+    });
+  }, [router]);
 
   const handleAuthSuccess = () => {
     router.replace("/chat");
@@ -41,10 +56,15 @@ export default function LoginPage() {
     setError(null);
     setSuccess(null);
     setLoading(true);
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    callbackUrl.searchParams.set("next", "/chat");
     const { data, error: authError } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: { full_name: fullName },
+        emailRedirectTo: callbackUrl.toString(),
+      },
     });
     setLoading(false);
     if (authError) {
@@ -62,11 +82,53 @@ export default function LoginPage() {
 
   const handleGoogle = async () => {
     setError(null);
+    setLoading(true);
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    callbackUrl.searchParams.set("next", "/chat");
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/chat` },
+      options: { redirectTo: callbackUrl.toString() },
     });
-    if (authError) setError(authError.message);
+    if (authError) {
+      setLoading(false);
+      setError(authError.message);
+    }
+  };
+
+  const handlePasswordResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    callbackUrl.searchParams.set("next", "/login?reset=1");
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: callbackUrl.toString(),
+    });
+    setLoading(false);
+    if (resetError) {
+      setError(resetError.message);
+      return;
+    }
+    setSuccess("Check your email for a secure password-reset link.");
+  };
+
+  const handlePasswordUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) {
+      setLoading(false);
+      setError(updateError.message);
+      return;
+    }
+    await supabase.auth.signOut();
+    window.history.replaceState({}, "", "/login");
+    setPassword("");
+    setView("signin");
+    setSuccess("Password updated. Sign in with your new password.");
+    setLoading(false);
   };
 
   return (
@@ -114,21 +176,31 @@ export default function LoginPage() {
                 </p>
               </div>
               {success && (
-                <p className="font-body-sm text-body-sm text-primary bg-primary-container/10 border border-primary-container/30 rounded-lg px-md py-sm">
+                <p
+                  role="status"
+                  className="font-body-sm text-body-sm text-primary bg-primary-container/10 border border-primary-container/30 rounded-lg px-md py-sm"
+                >
                   {success}
                 </p>
               )}
               {error && (
-                <p className="font-body-sm text-body-sm text-error bg-error-container/20 border border-error/30 rounded-lg px-md py-sm">
+                <p
+                  role="alert"
+                  className="font-body-sm text-body-sm text-error bg-error-container/20 border border-error/30 rounded-lg px-md py-sm"
+                >
                   {error}
                 </p>
               )}
               <form className="flex flex-col gap-md" onSubmit={handleSignIn}>
                 <div className="flex flex-col gap-xs">
-                  <label className="font-label-caps text-label-caps text-on-surface-variant tracking-wider">
+                  <label
+                    htmlFor="signin-email"
+                    className="font-label-caps text-label-caps text-on-surface-variant tracking-wider"
+                  >
                     EMAIL
                   </label>
                   <input
+                    id="signin-email"
                     className="bg-surface-container border border-outline-variant rounded-xl px-4 py-3 font-body-lg text-body-lg text-on-surface placeholder:text-outline-variant focus:outline-none input-glow transition-all duration-200"
                     placeholder="cinephile@example.com"
                     type="email"
@@ -139,15 +211,27 @@ export default function LoginPage() {
                 </div>
                 <div className="flex flex-col gap-xs">
                   <div className="flex justify-between items-center">
-                    <label className="font-label-caps text-label-caps text-on-surface-variant tracking-wider">
+                    <label
+                      htmlFor="signin-password"
+                      className="font-label-caps text-label-caps text-on-surface-variant tracking-wider"
+                    >
                       PASSWORD
                     </label>
-                    <a className="font-body-sm text-body-sm text-primary hover:text-primary-fixed transition-colors" href="#">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setView("forgot");
+                        setError(null);
+                        setSuccess(null);
+                      }}
+                      className="font-body-sm text-body-sm text-primary hover:text-primary-fixed transition-colors"
+                    >
                       Forgot?
-                    </a>
+                    </button>
                   </div>
                   <div className="relative">
                     <input
+                      id="signin-password"
                       className="w-full bg-surface-container border border-outline-variant rounded-xl px-4 py-3 font-body-lg text-body-lg text-on-surface placeholder:text-outline-variant focus:outline-none input-glow transition-all duration-200"
                       placeholder="••••••••"
                       type={showPassword ? "text" : "password"}
@@ -158,6 +242,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
                       className="absolute right-4 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors flex items-center justify-center"
                     >
                       <MaterialIcon name={showPassword ? "visibility" : "visibility_off"} size={20} />
@@ -182,6 +267,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => void handleGoogle()}
+                disabled={loading}
                 className="w-full flex items-center justify-center gap-sm border border-outline-variant bg-transparent text-on-surface font-title-md text-title-md py-3 rounded-lg hover:bg-surface-variant/40 active:bg-surface-variant/60 transition-all duration-200"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -207,7 +293,7 @@ export default function LoginPage() {
                 </button>
               </p>
             </div>
-          ) : (
+          ) : view === "signup" ? (
             <div className="flex flex-col gap-lg transition-opacity duration-300">
               <div className="text-center lg:text-left">
                 <h2 className="font-headline-lg-mobile lg:font-headline-lg text-headline-lg-mobile lg:text-headline-lg text-on-surface mb-xs">
@@ -218,21 +304,31 @@ export default function LoginPage() {
                 </p>
               </div>
               {success && (
-                <p className="font-body-sm text-body-sm text-primary bg-primary-container/10 border border-primary-container/30 rounded-lg px-md py-sm">
+                <p
+                  role="status"
+                  className="font-body-sm text-body-sm text-primary bg-primary-container/10 border border-primary-container/30 rounded-lg px-md py-sm"
+                >
                   {success}
                 </p>
               )}
               {error && (
-                <p className="font-body-sm text-body-sm text-error bg-error-container/20 border border-error/30 rounded-lg px-md py-sm">
+                <p
+                  role="alert"
+                  className="font-body-sm text-body-sm text-error bg-error-container/20 border border-error/30 rounded-lg px-md py-sm"
+                >
                   {error}
                 </p>
               )}
               <form className="flex flex-col gap-md" onSubmit={handleSignUp}>
                 <div className="flex flex-col gap-xs">
-                  <label className="font-label-caps text-label-caps text-on-surface-variant tracking-wider">
+                  <label
+                    htmlFor="signup-name"
+                    className="font-label-caps text-label-caps text-on-surface-variant tracking-wider"
+                  >
                     FULL NAME
                   </label>
                   <input
+                    id="signup-name"
                     className="bg-surface-container border border-outline-variant rounded-xl px-4 py-3 font-body-lg text-body-lg text-on-surface placeholder:text-outline-variant focus:outline-none input-glow transition-all duration-200"
                     placeholder="Your name"
                     type="text"
@@ -242,10 +338,14 @@ export default function LoginPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-xs">
-                  <label className="font-label-caps text-label-caps text-on-surface-variant tracking-wider">
+                  <label
+                    htmlFor="signup-email"
+                    className="font-label-caps text-label-caps text-on-surface-variant tracking-wider"
+                  >
                     EMAIL
                   </label>
                   <input
+                    id="signup-email"
                     className="bg-surface-container border border-outline-variant rounded-xl px-4 py-3 font-body-lg text-body-lg text-on-surface placeholder:text-outline-variant focus:outline-none input-glow transition-all duration-200"
                     placeholder="cinephile@example.com"
                     type="email"
@@ -255,15 +355,20 @@ export default function LoginPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-xs">
-                  <label className="font-label-caps text-label-caps text-on-surface-variant tracking-wider">
+                  <label
+                    htmlFor="signup-password"
+                    className="font-label-caps text-label-caps text-on-surface-variant tracking-wider"
+                  >
                     PASSWORD
                   </label>
                   <input
+                    id="signup-password"
                     className="w-full bg-surface-container border border-outline-variant rounded-xl px-4 py-3 font-body-lg text-body-lg text-on-surface placeholder:text-outline-variant focus:outline-none input-glow transition-all duration-200"
                     placeholder="Create a secure password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    minLength={8}
                     required
                   />
                 </div>
@@ -289,6 +394,100 @@ export default function LoginPage() {
                   Sign in
                 </button>
               </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-lg transition-opacity duration-300">
+              <div className="text-center lg:text-left">
+                <h2 className="font-headline-lg-mobile lg:font-headline-lg text-headline-lg-mobile lg:text-headline-lg text-on-surface mb-xs">
+                  {view === "forgot" ? "Reset your password" : "Choose a new password"}
+                </h2>
+                <p className="font-body-sm text-body-sm text-on-surface-variant">
+                  {view === "forgot"
+                    ? "We will email you a secure recovery link."
+                    : "Enter a new password for your Reel account."}
+                </p>
+              </div>
+              {success && (
+                <p
+                  role="status"
+                  className="font-body-sm text-body-sm text-primary bg-primary-container/10 border border-primary-container/30 rounded-lg px-md py-sm"
+                >
+                  {success}
+                </p>
+              )}
+              {error && (
+                <p
+                  role="alert"
+                  className="font-body-sm text-body-sm text-error bg-error-container/20 border border-error/30 rounded-lg px-md py-sm"
+                >
+                  {error}
+                </p>
+              )}
+              <form
+                className="flex flex-col gap-md"
+                onSubmit={
+                  view === "forgot" ? handlePasswordResetRequest : handlePasswordUpdate
+                }
+              >
+                {view === "forgot" ? (
+                  <div className="flex flex-col gap-xs">
+                    <label
+                      htmlFor="reset-email"
+                      className="font-label-caps text-label-caps text-on-surface-variant tracking-wider"
+                    >
+                      EMAIL
+                    </label>
+                    <input
+                      id="reset-email"
+                      className="bg-surface-container border border-outline-variant rounded-xl px-4 py-3 font-body-lg text-body-lg text-on-surface placeholder:text-outline-variant focus:outline-none input-glow transition-all duration-200"
+                      placeholder="cinephile@example.com"
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      required
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-xs">
+                    <label
+                      htmlFor="new-password"
+                      className="font-label-caps text-label-caps text-on-surface-variant tracking-wider"
+                    >
+                      NEW PASSWORD
+                    </label>
+                    <input
+                      id="new-password"
+                      className="bg-surface-container border border-outline-variant rounded-xl px-4 py-3 font-body-lg text-body-lg text-on-surface placeholder:text-outline-variant focus:outline-none input-glow transition-all duration-200"
+                      placeholder="At least 8 characters"
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      minLength={8}
+                      required
+                    />
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-primary text-on-primary font-title-md text-title-md py-3 rounded-lg mt-sm hover:bg-primary-container active:scale-[0.98] transition-all duration-200 disabled:opacity-50"
+                >
+                  {view === "forgot" ? "Send reset link" : "Update password"}
+                </button>
+              </form>
+              {view === "forgot" && (
+                <button
+                  type="button"
+                  className="text-primary hover:text-primary-fixed transition-colors font-medium"
+                  onClick={() => {
+                    setView("signin");
+                    setError(null);
+                    setSuccess(null);
+                  }}
+                >
+                  Back to sign in
+                </button>
+              )}
             </div>
           )}
         </div>

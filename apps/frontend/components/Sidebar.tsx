@@ -11,22 +11,33 @@ export interface SidebarProps {
   onToggle: () => void;
   onNewDiscovery: () => void;
   onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+  deletingConversationId: string | null;
+  onSignOut: () => void;
 }
 
 interface ConversationItemProps {
   chat: ConversationSummary;
   isActive: boolean;
   onSelect: () => void;
+  onDelete: () => void;
+  isDeleting: boolean;
 }
 
-function ConversationItem({ chat, isActive, onSelect }: ConversationItemProps) {
+function ConversationItem({
+  chat,
+  isActive,
+  onSelect,
+  onDelete,
+  isDeleting,
+}: ConversationItemProps) {
   const title = chat.title?.trim() || "Untitled conversation";
   return (
-    <li>
+    <li className="group flex items-center gap-xs">
       <button
         type="button"
         onClick={onSelect}
-        className={`w-full text-left px-sm py-sm rounded-md flex items-center gap-sm transition-colors ${
+        className={`flex-1 min-w-0 text-left px-sm py-sm rounded-md flex items-center gap-sm transition-colors ${
           isActive
             ? "bg-surface-container/50 text-primary-container border border-hairline"
             : "hover:bg-surface-container/30 text-on-surface-variant"
@@ -34,6 +45,15 @@ function ConversationItem({ chat, isActive, onSelect }: ConversationItemProps) {
       >
         <MaterialIcon name="chat_bubble_outline" size={16} />
         <span className="truncate font-body-sm text-body-sm">{title}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={isDeleting}
+        aria-label={`Delete ${title}`}
+        className="rounded-md p-xs text-on-surface-variant opacity-60 hover:bg-error-container/30 hover:text-error group-hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+      >
+        <MaterialIcon name={isDeleting ? "hourglass_empty" : "delete"} size={16} />
       </button>
     </li>
   );
@@ -44,11 +64,15 @@ function ConversationGroup({
   chats,
   activeConversationId,
   onSelectConversation,
+  onDeleteConversation,
+  deletingConversationId,
 }: {
   label: string;
   chats: ConversationSummary[];
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+  deletingConversationId: string | null;
 }) {
   if (chats.length === 0) return null;
   return (
@@ -61,6 +85,8 @@ function ConversationGroup({
             chat={chat}
             isActive={chat.id === activeConversationId}
             onSelect={() => onSelectConversation(chat.id)}
+            onDelete={() => onDeleteConversation(chat.id)}
+            isDeleting={deletingConversationId === chat.id}
           />
         ))}
       </ul>
@@ -78,15 +104,24 @@ export function Sidebar({
   onToggle,
   onNewDiscovery,
   onSelectConversation,
+  onDeleteConversation,
+  deletingConversationId,
+  onSignOut,
 }: SidebarProps) {
-  const hasChats = grouped.today.length > 0 || grouped.previous7Days.length > 0;
+  const hasChats =
+    grouped.today.length > 0 ||
+    grouped.previous7Days.length > 0 ||
+    grouped.older.length > 0;
 
   return (
     <aside
-      className={`h-full bg-canvas border-r border-hairline flex flex-col flex-shrink-0 overflow-hidden transition-[width,opacity,border-color] duration-300 ease-in-out ${
-        isOpen ? "w-[260px] opacity-100" : "w-0 opacity-0 border-r-transparent pointer-events-none"
+      className={`absolute md:relative inset-y-0 left-0 z-50 md:z-auto h-full bg-canvas border-r border-hairline flex flex-col flex-shrink-0 overflow-hidden transition-[width,opacity,border-color] duration-300 ease-in-out ${
+        isOpen
+          ? "w-[260px] opacity-100 shadow-2xl md:shadow-none"
+          : "w-0 opacity-0 border-r-transparent pointer-events-none"
       }`}
       aria-hidden={!isOpen}
+      aria-label="Conversation history"
     >
       <div className="w-[260px] min-w-[260px] h-full flex flex-col">
       <div className="p-lg flex items-center justify-between">
@@ -123,17 +158,30 @@ export function Sidebar({
           chats={grouped.today}
           activeConversationId={activeConversationId}
           onSelectConversation={onSelectConversation}
+          onDeleteConversation={onDeleteConversation}
+          deletingConversationId={deletingConversationId}
         />
         <ConversationGroup
           label="Previous 7 Days"
           chats={grouped.previous7Days}
           activeConversationId={activeConversationId}
           onSelectConversation={onSelectConversation}
+          onDeleteConversation={onDeleteConversation}
+          deletingConversationId={deletingConversationId}
+        />
+        <ConversationGroup
+          label="Older"
+          chats={grouped.older}
+          activeConversationId={activeConversationId}
+          onSelectConversation={onSelectConversation}
+          onDeleteConversation={onDeleteConversation}
+          deletingConversationId={deletingConversationId}
         />
       </div>
       <div className="p-md border-t border-hairline mt-auto">
         <button
           type="button"
+          onClick={onSignOut}
           className="flex items-center gap-md w-full hover:bg-surface-container/30 p-sm rounded-lg transition-colors"
         >
           <div className="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center overflow-hidden border border-hairline">
@@ -141,9 +189,9 @@ export function Sidebar({
           </div>
           <div className="flex-1 text-left">
             <div className="font-title-md text-body-sm">{userName}</div>
-            <div className="font-body-sm text-[12px] text-on-surface-variant">Settings</div>
+            <div className="font-body-sm text-[12px] text-on-surface-variant">Sign out</div>
           </div>
-          <MaterialIcon name="settings" className="text-on-surface-variant" size={20} />
+          <MaterialIcon name="logout" className="text-on-surface-variant" size={20} />
         </button>
       </div>
       </div>

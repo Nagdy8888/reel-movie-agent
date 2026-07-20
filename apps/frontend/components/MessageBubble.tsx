@@ -1,11 +1,6 @@
+import type { Citation } from "@/lib/chatTypes";
 import { MaterialIcon } from "./MaterialIcon";
 import { CitationChip } from "./CitationChip";
-
-export interface Citation {
-  id: string;
-  index: number;
-  label: string;
-}
 
 export interface MessageBubbleProps {
   role: "user" | "assistant";

@@ -22,6 +22,26 @@ pnpm dev
 
 Open `http://localhost:3000`.
 
+## Workspace architecture
+
+`ChatWorkspace` composes four focused client hooks:
+
+- `useAuthSession` owns Supabase browser-session changes and sign-out.
+- `useChats` owns conversation history, active transcript loading, and deletion.
+- `useChatStream` owns the abortable SSE turn lifecycle.
+- `useAnswerGraph` owns answer artifacts and lazy full-network loading.
+
+On small viewports the graph and chat become tabbed panels and conversation
+history opens as a drawer. Desktop keeps the resizable three-pane layout.
+
+## Authentication
+
+Next.js 16 `proxy.ts` validates Supabase claims before `/chat` renders, refreshes
+auth cookies, and redirects authenticated users away from `/login`. OAuth and
+password-recovery links return through `/auth/callback`, where the PKCE code is
+exchanged for the cookie session. The browser session remains responsible for
+supplying the access token to the authenticated FastAPI API.
+
 ## Graph rendering
 
 `GraphCanvas` dynamically loads a client-only Sigma.js runtime. The default
@@ -40,8 +60,13 @@ the full explorer.
 
 ```powershell
 pnpm lint
-pnpm exec tsc --noEmit
+pnpm typecheck
+pnpm test
 pnpm build
-pnpm exec playwright test tests/graph-focused.spec.ts
+pnpm test:e2e
 pnpm benchmark:graph
 ```
+
+Vitest covers SSE parsing and the pure chat/graph helpers. Playwright uses a
+development-only server guard bypass with mocked browser/API sessions; the
+bypass is unavailable in production.

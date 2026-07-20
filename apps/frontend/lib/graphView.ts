@@ -3,6 +3,9 @@ import type { GraphData, GraphLink, GraphNode } from "./api";
 /** Graph presentation modes exposed by the workspace. */
 export type GraphMode = "answer" | "full";
 
+/** Lifecycle states for lazy full-graph loading. */
+export type FullGraphStatus = "idle" | "loading" | "ready" | "error";
+
 /** Node categories supported by the movie knowledge graph. */
 export type GraphNodeType = GraphNode["type"];
 

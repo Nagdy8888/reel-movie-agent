@@ -1,335 +1,127 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { useRouter } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabaseClient";
+/** Responsive workspace composition for auth, conversations, streaming, and graph views. */
+
 import {
-  getChat,
-  getFullGraph,
-  listChats,
-  streamChat,
-  type ConversationSummary,
-  type GraphData,
-  type SourceSummary,
-} from "@/lib/api";
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import type { User } from "@supabase/supabase-js";
+import { useAnswerGraph } from "@/hooks/useAnswerGraph";
+import { useAuthSession } from "@/hooks/useAuthSession";
+import { useChats } from "@/hooks/useChats";
+import { useChatStream } from "@/hooks/useChatStream";
 import { groupChatsByRecency } from "@/lib/groupChats";
-import type { GraphMode } from "@/lib/graphView";
-import { Sidebar } from "@/components/Sidebar";
-import { ChatThread, type ChatMessage } from "@/components/ChatThread";
 import { ChatInput } from "@/components/ChatInput";
+import { ChatThread } from "@/components/ChatThread";
 import { GraphCanvas } from "@/components/GraphCanvas";
 import { MaterialIcon } from "@/components/MaterialIcon";
+import { Sidebar } from "@/components/Sidebar";
 
 const CHAT_PANE_MIN_WIDTH = 320;
 const CHAT_PANE_MAX_WIDTH = 720;
 const CHAT_PANE_DEFAULT_WIDTH = 440;
 const CHAT_PANE_WIDTH_STORAGE_KEY = "reel-chat-pane-width";
-const FULL_GRAPH_LOAD_ATTEMPTS = 3;
-const FULL_GRAPH_RETRY_DELAY_MS = 1_000;
-type FullGraphStatus = "idle" | "loading" | "ready" | "error";
 
+type MobilePanel = "graph" | "chat";
+
+/** Keep the persisted desktop chat width inside usable bounds. */
 function clampChatPaneWidth(width: number): number {
   return Math.min(CHAT_PANE_MAX_WIDTH, Math.max(CHAT_PANE_MIN_WIDTH, width));
 }
 
+/** Derive a friendly visual name from Supabase profile metadata. */
 function displayName(user: User | null): string {
   if (!user) return "Guest";
-  const meta = user.user_metadata as { full_name?: string } | undefined;
-  return meta?.full_name?.trim() || user.email?.split("@")[0] || "Cinephile";
+  const metadata = user.user_metadata as { full_name?: string } | undefined;
+  return metadata?.full_name?.trim() || user.email?.split("@")[0] || "Cinephile";
 }
 
+/** Derive a compact fallback avatar label. */
 function userInitial(user: User | null): string {
-  const name = displayName(user);
-  return name.charAt(0).toUpperCase();
+  return displayName(user).charAt(0).toUpperCase();
 }
 
-/** Three-pane chat workspace wired to the backend SSE stream. */
+/** Three-pane desktop workspace with a tabbed small-viewport layout. */
 export function ChatWorkspace() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [chats, setChats] = useState<ConversationSummary[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [threadId, setThreadId] = useState<string | undefined>(undefined);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [title, setTitle] = useState<string>("New chat");
-  const [input, setInput] = useState("");
-  const [isThinking, setIsThinking] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sources, setSources] = useState<SourceSummary[]>([]);
-  const [graph, setGraph] = useState<GraphData>({ nodes: [], links: [] });
-  const [fullGraph, setFullGraph] = useState<GraphData>({ nodes: [], links: [] });
-  const [fullGraphStatus, setFullGraphStatus] = useState<FullGraphStatus>("idle");
-  const [graphMode, setGraphMode] = useState<GraphMode>("answer");
-  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const auth = useAuthSession();
+  const chats = useChats({
+    accessToken: auth.accessToken,
+    onUnauthorized: auth.redirectToLogin,
+  });
+  const answerGraph = useAnswerGraph({
+    accessToken: auth.accessToken,
+    onUnauthorized: auth.redirectToLogin,
+  });
+  const chatStream = useChatStream({
+    accessToken: auth.accessToken,
+    threadId: chats.threadId,
+    activeConversationId: chats.activeConversationId,
+    appendMessage: chats.appendMessage,
+    updateAssistantMessage: chats.updateAssistantMessage,
+    updateIdentity: chats.updateIdentity,
+    refreshChats: chats.refreshChats,
+    finishStream: chats.finishStream,
+    resetAnswer: answerGraph.resetAnswer,
+    setSources: answerGraph.setSources,
+    setAnswerGraph: answerGraph.setAnswerGraph,
+    clearChatError: chats.clearError,
+    onUnauthorized: auth.redirectToLogin,
+  });
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("chat");
   const [chatPaneWidth, setChatPaneWidth] = useState(CHAT_PANE_DEFAULT_WIDTH);
-  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const savedWidth = Number(window.localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY));
-    if (!Number.isFinite(savedWidth)) return;
-    queueMicrotask(() => setChatPaneWidth(clampChatPaneWidth(savedWidth)));
+    if (Number.isFinite(savedWidth)) {
+      queueMicrotask(() => setChatPaneWidth(clampChatPaneWidth(savedWidth)));
+    }
+
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const syncSidebar = () => setSidebarOpen(desktop.matches);
+    syncSidebar();
+    desktop.addEventListener("change", syncSidebar);
+    return () => desktop.removeEventListener("change", syncSidebar);
   }, []);
 
-  const refreshChats = useCallback(async (token: string) => {
-    try {
-      const list = await listChats(token);
-      setChats(list);
-    } catch (err) {
-      if (err instanceof Error && err.message === "unauthorized") {
-        router.replace("/login");
-      }
-    }
-  }, [router]);
+  const handleNewDiscovery = useCallback(() => {
+    chatStream.abort();
+    chats.startNewConversation();
+    answerGraph.resetAnswer();
+    chatStream.setInput("");
+    chatStream.clearError();
+    setMobilePanel("chat");
+  }, [answerGraph, chatStream, chats]);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const init = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-      if (!mounted) return;
-      setUser(session.user);
-      setAccessToken(session.access_token);
-      await refreshChats(session.access_token);
-    };
-
-    void init();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-      setUser(session.user);
-      setAccessToken(session.access_token);
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-      abortRef.current?.abort();
-    };
-  }, [router, refreshChats]);
-
-  const loadFullGraph = useCallback(async () => {
-    if (!accessToken || fullGraphStatus === "loading" || fullGraphStatus === "ready") return;
-    setFullGraphStatus("loading");
-    for (let attempt = 0; attempt < FULL_GRAPH_LOAD_ATTEMPTS; attempt += 1) {
-      try {
-        const loadedGraph = await getFullGraph(accessToken);
-        if (loadedGraph.nodes.length > 0) {
-          setFullGraph(loadedGraph);
-          setFullGraphStatus("ready");
-          return;
-        }
-      } catch (err) {
-        if (err instanceof Error && err.message === "unauthorized") {
-          router.replace("/login");
-          return;
-        }
-      }
-      if (attempt < FULL_GRAPH_LOAD_ATTEMPTS - 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, FULL_GRAPH_RETRY_DELAY_MS));
-      }
-    }
-    setFullGraphStatus("error");
-  }, [accessToken, fullGraphStatus, router]);
-
-  const handleGraphModeChange = useCallback(
-    (mode: GraphMode) => {
-      setGraphMode(mode);
-      setSelectedGraphNodeId(null);
-      if (mode === "full") void loadFullGraph();
+  const handleSelectConversation = useCallback(
+    async (id: string) => {
+      chatStream.abort();
+      answerGraph.resetAnswer();
+      await chats.selectConversation(id);
+      if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
+      setMobilePanel("chat");
     },
-    [loadFullGraph],
+    [answerGraph, chatStream, chats],
   );
 
-  const handleGraphNodeSelect = useCallback((nodeId: string | null) => {
-    setSelectedGraphNodeId(nodeId);
-  }, []);
-
-  const handleCitationSelect = useCallback((nodeId: string) => {
-    setGraphMode("answer");
-    setSelectedGraphNodeId(nodeId);
-  }, []);
-
-  const handleNewDiscovery = () => {
-    abortRef.current?.abort();
-    setActiveConversationId(null);
-    setThreadId(undefined);
-    setMessages([]);
-    setTitle("New chat");
-    setInput("");
-    setIsThinking(false);
-    setIsStreaming(false);
-    setError(null);
-    setSources([]);
-    setGraph({ nodes: [], links: [] });
-    setGraphMode("answer");
-    setSelectedGraphNodeId(null);
-  };
-
-  const handleSelectConversation = async (id: string) => {
-    if (!accessToken) return;
-    abortRef.current?.abort();
-    setError(null);
-    setSources([]);
-    setGraph({ nodes: [], links: [] });
-    setGraphMode("answer");
-    setSelectedGraphNodeId(null);
-    try {
-      const detail = await getChat(id, accessToken);
-      setActiveConversationId(detail.id);
-      setThreadId(detail.thread_id);
-      setTitle(detail.title?.trim() || "Untitled conversation");
-      setMessages(
-        detail.messages.map((m, i) => ({
-          id: `${detail.id}-${i}`,
-          role: m.role,
-          content: m.content,
-        })),
-      );
-      setIsThinking(false);
-      setIsStreaming(false);
-    } catch (err) {
-      if (err instanceof Error && err.message === "unauthorized") {
-        router.replace("/login");
-      } else {
-        setError("Could not load conversation.");
+  const handleDeleteConversation = useCallback(
+    (id: string) => {
+      const conversation = chats.chats.find((chat) => chat.id === id);
+      const title = conversation?.title?.trim() || "this conversation";
+      if (!window.confirm(`Delete ${title}? This cannot be undone.`)) return;
+      if (id === chats.activeConversationId) {
+        chatStream.abort();
+        answerGraph.resetAnswer();
       }
-    }
-  };
-
-  const handleSend = async () => {
-    const text = input.trim();
-    if (!text || !accessToken || isStreaming) return;
-
-    setError(null);
-    setInput("");
-    setSources([]);
-    setGraph({ nodes: [], links: [] });
-    setGraphMode("answer");
-    setSelectedGraphNodeId(null);
-    const userMsgId = `user-${Date.now()}`;
-    const assistantMsgId = `assistant-${Date.now()}`;
-    setMessages((prev) => [...prev, { id: userMsgId, role: "user", content: text }]);
-    setIsThinking(true);
-    setIsStreaming(true);
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    let assistantText = "";
-    let gotFirstToken = false;
-    let currentSources: SourceSummary[] = [];
-    let currentConversationId = activeConversationId;
-    let currentThreadId = threadId;
-
-    const citationsFromSources = (items: SourceSummary[]) =>
-      items.map((source, index) => ({
-        id: source.id,
-        index: index + 1,
-        label: source.title,
-      }));
-
-    try {
-      for await (const event of streamChat(text, accessToken, threadId, controller.signal)) {
-        if (event.type === "meta") {
-          currentThreadId = event.thread_id;
-          currentConversationId = event.conversation_id;
-          setThreadId(event.thread_id);
-          setActiveConversationId(event.conversation_id);
-        } else if (event.type === "sources") {
-          currentSources = event.sources;
-          setSources(event.sources);
-          if (gotFirstToken) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantMsgId
-                  ? { ...m, citations: citationsFromSources(event.sources) }
-                  : m,
-              ),
-            );
-          }
-        } else if (event.type === "graph") {
-          setGraph(event.graph);
-          setGraphMode("answer");
-          setSelectedGraphNodeId(null);
-        } else if (event.type === "token") {
-          if (!gotFirstToken) {
-            gotFirstToken = true;
-            setIsThinking(false);
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: assistantMsgId,
-                role: "assistant",
-                content: event.text,
-                citations: citationsFromSources(currentSources),
-              },
-            ]);
-            assistantText = event.text;
-          } else {
-            assistantText += event.text;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantMsgId
-                  ? {
-                      ...m,
-                      content: assistantText,
-                      citations: citationsFromSources(currentSources),
-                    }
-                  : m,
-              ),
-            );
-          }
-        } else if (event.type === "done") {
-          break;
-        }
-      }
-      const list = await listChats(accessToken);
-      setChats(list);
-      const updated = currentConversationId
-        ? list.find((c) => c.id === currentConversationId)
-        : list.find((c) => c.thread_id === currentThreadId);
-      if (updated?.title) setTitle(updated.title.trim() || "Untitled conversation");
-      if (updated && !currentConversationId) {
-        setActiveConversationId(updated.id);
-      }
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      if (err instanceof Error) {
-        if (err.message === "unauthorized") {
-          router.replace("/login");
-          return;
-        }
-        if (err.message === "rate_limited") {
-          setError("You're sending messages too quickly. Please slow down.");
-        } else {
-          setError("Something went wrong. Please try again.");
-        }
-      }
-      setIsThinking(false);
-    } finally {
-      // Clear the thinking indicator even when a stream ends without emitting
-      // any answer token (e.g. a fail-closed empty-context reply), so it never
-      // spins forever.
-      setIsThinking(false);
-      setIsStreaming(false);
-    }
-  };
+      void chats.removeConversation(id);
+    },
+    [answerGraph, chatStream, chats],
+  );
 
   const handleResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -358,84 +150,161 @@ export function ChatWorkspace() {
     [chatPaneWidth],
   );
 
-  const grouped = groupChatsByRecency(chats);
+  if (auth.isLoading) {
+    return (
+      <div
+        className="h-dvh bg-canvas text-on-surface-variant flex items-center justify-center"
+        role="status"
+      >
+        Loading your workspace…
+      </div>
+    );
+  }
+
+  const grouped = groupChatsByRecency(chats.chats);
+  const error = auth.error ?? chats.error ?? chatStream.error;
 
   return (
-    <div className="bg-surface-container-lowest text-on-surface h-screen overflow-hidden flex font-body-lg">
-      <Sidebar
-        grouped={grouped}
-        activeConversationId={activeConversationId}
-        userInitial={userInitial(user)}
-        userName={displayName(user)}
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(false)}
-        onNewDiscovery={handleNewDiscovery}
-        onSelectConversation={handleSelectConversation}
-      />
-      <GraphCanvas
-        answerGraph={graph}
-        fullGraph={fullGraph}
-        fullGraphStatus={fullGraphStatus}
-        mode={graphMode}
-        sources={sources}
-        selectedNodeId={selectedGraphNodeId}
-        onModeChange={handleGraphModeChange}
-        onRetryFullGraph={() => {
-          setFullGraphStatus("idle");
-          queueMicrotask(() => void loadFullGraph());
-        }}
-        onSelectNode={handleGraphNodeSelect}
-      />
-      <div
-        role="separator"
-        aria-label="Resize chat panel"
-        aria-orientation="vertical"
-        onPointerDown={handleResizeStart}
-        className="w-1.5 h-full cursor-col-resize bg-hairline hover:bg-primary-container/70 active:bg-primary-container transition-colors flex-shrink-0 z-40"
-      />
-      <aside
-        className="h-full bg-background border-l border-hairline flex flex-col flex-shrink-0 relative z-30 min-w-0"
-        style={{ width: chatPaneWidth }}
-      >
-        <header className="h-[64px] border-b border-hairline flex items-center justify-between px-md glass-panel flex-shrink-0">
-          <div className="flex items-center gap-md min-w-0 flex-1">
-            {!sidebarOpen && (
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="text-on-surface-variant hover:text-primary-container transition-colors flex-shrink-0"
-                aria-label="Open sidebar"
-              >
-                <MaterialIcon name="menu" />
-              </button>
-            )}
-            <h1 className="font-headline-lg text-headline-lg text-on-surface truncate pr-md">{title}</h1>
-          </div>
-          <div className="hidden xl:flex items-center gap-2 px-3 py-1 rounded-full border border-primary-container/30 bg-primary-container/10">
-            <MaterialIcon name="psychology" className="text-primary-container" size={14} />
-            <span className="font-label-caps text-label-caps text-primary-container">
-              GPT-4 Movie Graph
-            </span>
-          </div>
-        </header>
-        {error && (
-          <div className="absolute top-[72px] left-md right-md z-30 bg-error-container text-on-error-container px-md py-sm rounded-lg font-body-sm text-body-sm">
-            {error}
-          </div>
+    <div className="bg-surface-container-lowest text-on-surface h-dvh overflow-hidden flex flex-col font-body-lg">
+      <nav className="md:hidden h-12 flex-shrink-0 border-b border-hairline bg-canvas flex items-center justify-between px-sm z-40">
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="p-xs text-on-surface-variant"
+          aria-label="Open conversation history"
+        >
+          <MaterialIcon name="menu" />
+        </button>
+        <div className="flex rounded-full border border-hairline bg-background p-1">
+          {(["graph", "chat"] as const).map((panel) => (
+            <button
+              key={panel}
+              type="button"
+              onClick={() => setMobilePanel(panel)}
+              aria-pressed={mobilePanel === panel}
+              className={`rounded-full px-md py-1 font-label-caps text-label-caps capitalize ${
+                mobilePanel === panel
+                  ? "bg-primary-container/20 text-primary-container"
+                  : "text-on-surface-variant"
+              }`}
+            >
+              {panel}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleNewDiscovery}
+          className="p-xs text-primary-container"
+          aria-label="Start new discovery"
+        >
+          <MaterialIcon name="add" />
+        </button>
+      </nav>
+
+      <div className="relative flex flex-1 min-h-0">
+        {sidebarOpen && (
+          <button
+            type="button"
+            className="md:hidden absolute inset-0 z-40 bg-black/55"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close conversation history"
+          />
         )}
-        <ChatThread
-          messages={messages}
-          isThinking={isThinking}
-          selectedCitationId={selectedGraphNodeId}
-          onCitationSelect={handleCitationSelect}
+        <Sidebar
+          grouped={grouped}
+          activeConversationId={chats.activeConversationId}
+          userInitial={userInitial(auth.user)}
+          userName={displayName(auth.user)}
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen(false)}
+          onNewDiscovery={handleNewDiscovery}
+          onSelectConversation={(id) => void handleSelectConversation(id)}
+          onDeleteConversation={handleDeleteConversation}
+          deletingConversationId={chats.deletingConversationId}
+          onSignOut={() => {
+            chatStream.abort();
+            void auth.signOut();
+          }}
         />
-        <ChatInput
-          value={input}
-          onChange={setInput}
-          onSend={() => void handleSend()}
-          disabled={isStreaming || !accessToken}
+        <GraphCanvas
+          answerGraph={answerGraph.graph}
+          fullGraph={answerGraph.fullGraph}
+          fullGraphStatus={answerGraph.fullGraphStatus}
+          mode={answerGraph.graphMode}
+          sources={answerGraph.sources}
+          selectedNodeId={answerGraph.selectedGraphNodeId}
+          onModeChange={answerGraph.changeMode}
+          onRetryFullGraph={answerGraph.retryFullGraph}
+          onSelectNode={answerGraph.selectNode}
+          className={mobilePanel === "graph" ? "flex" : "hidden md:flex"}
         />
-      </aside>
+        <div
+          role="separator"
+          aria-label="Resize chat panel"
+          aria-orientation="vertical"
+          onPointerDown={handleResizeStart}
+          className="hidden md:block w-1.5 h-full cursor-col-resize bg-hairline hover:bg-primary-container/70 active:bg-primary-container transition-colors flex-shrink-0 z-30"
+        />
+        <aside
+          className={`${mobilePanel === "chat" ? "flex" : "hidden"} md:flex h-full w-full md:w-[var(--chat-pane-width)] bg-background md:border-l border-hairline flex-col flex-shrink-0 relative z-30 min-w-0`}
+          style={{ "--chat-pane-width": `${chatPaneWidth}px` } as CSSProperties}
+          aria-label="Chat panel"
+        >
+          <header className="h-[64px] border-b border-hairline flex items-center justify-between px-md glass-panel flex-shrink-0">
+            <div className="flex items-center gap-md min-w-0 flex-1">
+              {!sidebarOpen && (
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  className="hidden md:block text-on-surface-variant hover:text-primary-container transition-colors flex-shrink-0"
+                  aria-label="Open sidebar"
+                >
+                  <MaterialIcon name="menu" />
+                </button>
+              )}
+              <h1 className="font-headline-lg text-headline-lg text-on-surface truncate pr-md">
+                {chats.title}
+              </h1>
+            </div>
+            <div className="hidden xl:flex items-center gap-2 px-3 py-1 rounded-full border border-primary-container/30 bg-primary-container/10">
+              <MaterialIcon name="psychology" className="text-primary-container" size={14} />
+              <span className="font-label-caps text-label-caps text-primary-container">
+                GPT-4 Movie Graph
+              </span>
+            </div>
+          </header>
+          {error && (
+            <div
+              role="alert"
+              className="absolute top-[72px] left-md right-md z-30 bg-error-container text-on-error-container px-md py-sm rounded-lg font-body-sm text-body-sm"
+            >
+              {error}
+            </div>
+          )}
+          {chats.isConversationLoading ? (
+            <div
+              className="flex-1 min-h-0 flex items-center justify-center text-on-surface-variant"
+              role="status"
+            >
+              Loading conversation…
+            </div>
+          ) : (
+            <ChatThread
+              messages={chats.messages}
+              isThinking={chatStream.isThinking}
+              selectedCitationId={answerGraph.selectedGraphNodeId}
+              onCitationSelect={answerGraph.selectCitation}
+            />
+          )}
+          <ChatInput
+            value={chatStream.input}
+            onChange={chatStream.setInput}
+            onSend={() => void chatStream.send()}
+            disabled={chatStream.isStreaming || !auth.accessToken || chats.isConversationLoading}
+          />
+        </aside>
+      </div>
     </div>
   );
 }

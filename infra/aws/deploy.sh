@@ -30,12 +30,45 @@ if ((${#missing[@]})); then
   exit 1
 fi
 
-# Optional GHCR login for private packages (token file owned by deploy user).
-if [[ -f /opt/reel/.ghcr_token ]]; then
-  # shellcheck disable=SC2002
-  cat /opt/reel/.ghcr_token | docker login ghcr.io -u "$(cat /opt/reel/.ghcr_user 2>/dev/null || echo github)" --password-stdin
-fi
+# Authenticate to GHCR in a throwaway Docker config dir so the token is not left
+# in /root/.docker/config.json (docker login warns about unencrypted storage there).
+_ghcr_owned_cfg=0
+_ghcr_cfg=""
+
+ghcr_login() {
+  local user="" token=""
+  if [[ -n "${GHCR_TOKEN:-}" ]]; then
+    user="${GHCR_USER:-github}"
+    token="$GHCR_TOKEN"
+  elif [[ -f /opt/reel/.ghcr_token ]]; then
+    user="$(cat /opt/reel/.ghcr_user 2>/dev/null || echo github)"
+    # shellcheck disable=SC2002
+    token="$(cat /opt/reel/.ghcr_token)"
+  else
+    return 0
+  fi
+  if [[ -z "${DOCKER_CONFIG:-}" ]]; then
+    _ghcr_cfg="$(mktemp -d)"
+    chmod 700 "$_ghcr_cfg"
+    export DOCKER_CONFIG="$_ghcr_cfg"
+    _ghcr_owned_cfg=1
+  fi
+  echo "$token" | docker login ghcr.io -u "$user" --password-stdin
+}
+
+ghcr_logout() {
+  if [[ "$_ghcr_owned_cfg" -eq 1 && -n "$_ghcr_cfg" ]]; then
+    docker logout ghcr.io 2>/dev/null || true
+    rm -rf "$_ghcr_cfg"
+    unset DOCKER_CONFIG
+  fi
+}
+
+trap ghcr_logout EXIT
+ghcr_login
 
 docker compose -f "$COMPOSE_FILE" pull
 docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 docker image prune -f
+ghcr_logout
+trap - EXIT

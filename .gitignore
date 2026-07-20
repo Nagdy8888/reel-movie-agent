@@ -35,6 +35,7 @@ stitch_reel_ai_movie_assistant/
 
 # prev_review_folder
 prev_review/
+review/ 
 
 infra/aws/.env.prod
 infra/aws/tmp-eic*

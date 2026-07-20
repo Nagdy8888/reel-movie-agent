@@ -112,7 +112,6 @@ jobs:
           envs: GHCR_USER,GHCR_TOKEN,RAG_PG_USER,RAG_PG_PASSWORD,RAG_PG_DATABASE
           script: |
             set -euo pipefail
-            echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
             # Upsert LightRAG keys into /opt/reel/.env (Compose interpolates them).
             # Set GitHub Actions secrets RAG_PG_USER / RAG_PG_PASSWORD / RAG_PG_DATABASE.
@@ -150,7 +149,7 @@ jobs:
             fi
 
             chmod +x /opt/reel/deploy.sh
-            sudo bash /opt/reel/deploy.sh
+            sudo GHCR_USER="$GHCR_USER" GHCR_TOKEN="$GHCR_TOKEN" bash /opt/reel/deploy.sh
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,7 @@
 """Contract tests for the SSE chat endpoint."""
 
 import json
+import time
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -15,7 +16,7 @@ def test_chat_requires_auth(anon_client: TestClient) -> None:
 def test_chat_streams_tokens_and_persists(auth_client: TestClient, mock_store: MagicMock) -> None:
     """Chat streams meta, token frames, done event, and persists user + assistant messages."""
     with patch(
-        "api.routes.chat.generate_conversation_title",
+        "api.services.streaming.generate_conversation_title",
         return_value="Tom Hanks Movies",
     ) as mock_title:
         response = auth_client.post("/chat", json={"message": "What movies did Tom Hanks act in?"})
@@ -34,14 +35,15 @@ def test_chat_streams_tokens_and_persists(auth_client: TestClient, mock_store: M
     assert "event: done" in body
 
     mock_store.upsert_conversation.assert_called_once()
-    assert mock_store.add_message.call_count == 2
     conv_id = "11111111-1111-1111-1111-111111111111"
     msg = "What movies did Tom Hanks act in?"
-    mock_store.add_message.assert_any_call(conv_id, "user", msg)
-    mock_store.add_message.assert_any_call(conv_id, "assistant", "Hello")
-    mock_store.touch.assert_called_once()
+    mock_store.add_message.assert_called_once_with(conv_id, "user", msg)
     mock_title.assert_called_once_with(msg, "Hello")
-    mock_store.update_title.assert_called_once_with(conv_id, "Tom Hanks Movies")
+    mock_store.complete_turn.assert_called_once_with(
+        conv_id,
+        "Hello",
+        title="Tom Hanks Movies",
+    )
 
 
 def test_chat_emits_artifacts_from_first_valid_values_event(
@@ -155,7 +157,7 @@ def test_chat_emits_fresh_artifacts_over_stale_checkpoint_values(
     fake_graph.stream_events = _stream_events
     auth_client.app.dependency_overrides[get_graph] = lambda: fake_graph
     try:
-        with patch("api.routes.chat.generate_conversation_title", return_value="Sci-fi"):
+        with patch("api.services.streaming.generate_conversation_title", return_value="Sci-fi"):
             response = auth_client.post(
                 "/chat",
                 json={"message": "sci-fi movies about survival", "thread_id": "thread-1"},
@@ -198,13 +200,15 @@ def test_chat_emits_whole_message_reply_when_no_tokens_stream(
 
     auth_client.app.state.graph.stream_events = _stream_events
 
-    with patch("api.routes.chat.generate_conversation_title", return_value="Unknown film"):
+    with patch("api.services.streaming.generate_conversation_title", return_value="Unknown film"):
         response = auth_client.post("/chat", json={"message": "Tell me about a fake movie"})
 
     assert response.status_code == 200
     assert f'"token": {json.dumps(reply)}' in response.text
-    mock_store.add_message.assert_any_call(
-        "11111111-1111-1111-1111-111111111111", "assistant", reply
+    mock_store.complete_turn.assert_called_once_with(
+        "11111111-1111-1111-1111-111111111111",
+        reply,
+        title="Unknown film",
     )
 
 
@@ -216,6 +220,97 @@ def test_chat_rejects_foreign_thread(auth_client: TestClient, mock_store: MagicM
         json={"message": "hi", "thread_id": "other-user-thread"},
     )
     assert response.status_code == 403
+
+
+def test_chat_emits_error_and_rolls_back_failed_turn(
+    auth_client: TestClient,
+    mock_graph: MagicMock,
+    mock_store: MagicMock,
+) -> None:
+    """A graph failure emits a safe error frame and removes the orphan user turn."""
+
+    def _stream_events(_inputs, _config, *, version):
+        """Raise before the graph can produce an answer."""
+        del version
+        raise RuntimeError("private upstream detail")
+        yield
+
+    mock_graph.stream_events = _stream_events
+
+    response = auth_client.post("/chat", json={"message": "Suggest a movie"})
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert '"code": "stream_failed"' in response.text
+    assert "private upstream detail" not in response.text
+    assert response.text.endswith("event: done\ndata: {}\n\n")
+    mock_store.delete_user_message.assert_called_once_with(
+        "11111111-1111-1111-1111-111111111111",
+        "22222222-2222-2222-2222-222222222222",
+    )
+    mock_store.complete_turn.assert_not_called()
+
+
+def test_chat_enforces_overall_stream_timeout(
+    auth_client: TestClient,
+    mock_graph: MagicMock,
+    mock_store: MagicMock,
+) -> None:
+    """A graph that exceeds the turn budget emits timeout and rolls back."""
+    from api.settings import BackendSettings, get_settings
+
+    def _slow_stream(_inputs, _config, *, version):
+        """Block longer than the configured test deadline."""
+        del version
+        time.sleep(0.05)
+        yield {
+            "method": "messages",
+            "params": {
+                "data": (
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": "late"},
+                    },
+                    {"langgraph_node": "generate"},
+                )
+            },
+        }
+
+    mock_graph.stream_events = _slow_stream
+    auth_client.app.dependency_overrides[get_settings] = lambda: BackendSettings(
+        chat_stream_timeout_seconds=0.01
+    )
+    try:
+        response = auth_client.post("/chat", json={"message": "Suggest a movie"})
+    finally:
+        auth_client.app.dependency_overrides.pop(get_settings, None)
+
+    assert response.status_code == 200
+    assert '"code": "timeout"' in response.text
+    assert '"token": "late"' not in response.text
+    mock_store.delete_user_message.assert_called_once()
+
+
+def test_chat_rate_limit_returns_429(
+    auth_client: TestClient,
+) -> None:
+    """The paid chat endpoint rejects requests after its per-minute budget."""
+    from api.limiter import limiter
+
+    limiter.reset()
+    try:
+        responses = [
+            auth_client.post(
+                "/chat",
+                json={"message": "hi", "thread_id": f"rate-thread-{index}"},
+            )
+            for index in range(21)
+        ]
+    finally:
+        limiter.reset()
+
+    assert all(response.status_code == 200 for response in responses[:20])
+    assert responses[20].status_code == 429
 
 
 def test_chat_re_emits_filtered_sources_when_answer_cites_one_film(
@@ -283,7 +378,7 @@ def test_chat_re_emits_filtered_sources_when_answer_cites_one_film(
         patch("api.main.build_store", return_value=MagicMock()),
         patch("api.main.build_graph", return_value=graph),
         patch("api.main.open_pool", return_value=MagicMock()),
-        patch("api.routes.chat.generate_conversation_title", return_value="Forrest Gump"),
+        patch("api.services.streaming.generate_conversation_title", return_value="Forrest Gump"),
     ):
         from api.auth import User, current_user
         from api.deps import get_chat_store
@@ -376,7 +471,7 @@ def test_chat_filters_by_question_when_answer_omits_title(
         patch("api.main.build_store", return_value=MagicMock()),
         patch("api.main.build_graph", return_value=graph),
         patch("api.main.open_pool", return_value=MagicMock()),
-        patch("api.routes.chat.generate_conversation_title", return_value="Hunger Games"),
+        patch("api.services.streaming.generate_conversation_title", return_value="Hunger Games"),
     ):
         from api.auth import User, current_user
         from api.deps import get_chat_store

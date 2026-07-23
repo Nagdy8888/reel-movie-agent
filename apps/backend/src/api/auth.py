@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,7 @@ def _jwks_client(jwks_url: str) -> jwt.PyJWKClient:
 
 
 def current_user(
+    request: Request,
     creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
     settings: Annotated[BackendSettings, Depends(get_settings)],
 ) -> User:
@@ -45,6 +46,10 @@ def current_user(
             algorithms=["RS256", "ES256"],
             audience=settings.supabase_jwt_aud,
         )
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not subject:
+            raise jwt.InvalidTokenError("Missing subject")
     except jwt.PyJWTError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token") from exc
-    return User(id=claims["sub"], email=claims.get("email"))
+    request.state.user_id = subject
+    return User(id=subject, email=claims.get("email"))

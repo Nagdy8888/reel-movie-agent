@@ -97,7 +97,7 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Playwright UX tests
-        run: pnpm test:e2e
+        run: pnpm test:e2e:ci
 
   deploy-backend:
     name: Build · push · SSH deploy

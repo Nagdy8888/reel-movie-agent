@@ -138,6 +138,8 @@ export function useChatStream({
             assistantText,
             citationsFromSources(currentSources),
           );
+        } else if (event.type === "error") {
+          throw new Error(event.code);
         } else if (event.type === "done") {
           break;
         }

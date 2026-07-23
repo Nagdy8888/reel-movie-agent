@@ -34,13 +34,62 @@ class ChatStore:
                 (user_id, thread_id, title),
             ).fetchone()
 
-    def add_message(self, conversation_id: str, role: str, content: str) -> None:
-        """Append a message row to a conversation."""
+    def add_message(self, conversation_id: str, role: str, content: str) -> str:
+        """Append a message row and return its generated id."""
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO messages (conversation_id, role, content)
+                VALUES (%s, %s, %s)
+                RETURNING id
+                """,
+                (conversation_id, role, content),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Message insert did not return an id")
+        return str(row["id"])
+
+    def delete_user_message(self, conversation_id: str, message_id: str) -> None:
+        """Delete one incomplete user turn without touching prior history."""
         with self._pool.connection() as conn:
             conn.execute(
-                "INSERT INTO messages (conversation_id, role, content) VALUES (%s, %s, %s)",
-                (conversation_id, role, content),
+                """
+                DELETE FROM messages
+                WHERE id = %s AND conversation_id = %s AND role = 'user'
+                """,
+                (message_id, conversation_id),
             )
+
+    def complete_turn(
+        self,
+        conversation_id: str,
+        answer: str,
+        *,
+        title: str | None = None,
+    ) -> None:
+        """Persist the assistant reply and conversation metadata atomically."""
+        with self._pool.connection() as conn, conn.transaction():
+            conn.execute(
+                """
+                INSERT INTO messages (conversation_id, role, content)
+                VALUES (%s, 'assistant', %s)
+                """,
+                (conversation_id, answer),
+            )
+            if title is None:
+                conn.execute(
+                    "UPDATE conversations SET updated_at = now() WHERE id = %s",
+                    (conversation_id,),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE conversations
+                    SET title = %s, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (title, conversation_id),
+                )
 
     def touch(self, conversation_id: str) -> None:
         """Bump a conversation's updated_at."""

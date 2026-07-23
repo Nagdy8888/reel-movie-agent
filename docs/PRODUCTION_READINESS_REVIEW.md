@@ -31,6 +31,9 @@ planned 1,000 remains optional follow-up work when quota is available.
 - `/chat` and `/graph` require Supabase JWT auth. The privileged
   `SUPABASE_DB_URL` bypasses RLS, so route auth is the runtime enforcement
   boundary.
+- The frontend's Next.js 16 proxy validates Supabase claims and refreshes auth
+  cookies before `/chat` renders; OAuth and recovery flows use a same-origin
+  PKCE callback route.
 - Projection tables have RLS enabled plus authenticated SELECT policies,
   closing the PostgREST/Data API path for anonymous callers.
 - OpenAI calls have configured timeout and token limits and are wrapped for
@@ -116,8 +119,9 @@ handled in a separate Supabase hardening change.
 ## Release gate
 
 - Python lint/format/type/tests must pass.
-- Frontend ESLint, TypeScript, and focused/performance Playwright tests must
-  pass.
+- Frontend ESLint, TypeScript, Vitest, production build, and focused
+  Playwright tests must pass in CI. Run the 48,734-node performance benchmark
+  manually or on a dedicated schedule to avoid shared-runner timing variance.
 - `docker compose config` and the `rag-postgres` healthcheck must pass.
 - 25-movie smoke ingest must pass.
 - The current 503-movie subset must pass validation; a full 1,000-movie ingest

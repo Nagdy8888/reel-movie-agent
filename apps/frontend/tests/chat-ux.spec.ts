@@ -251,3 +251,27 @@ test("starting a new discovery clears the previous answer's poster and graph", a
     page.getByText("Ask a movie question to build an answer network"),
   ).toBeVisible();
 });
+
+test("small viewports switch between chat, graph, and conversation drawer", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await authenticate(page);
+  await setupRoutes(page);
+
+  await page.goto("http://localhost:3000/chat");
+  const chatPanel = page.getByRole("complementary", { name: "Chat panel" });
+  const conversationHistory = page.getByRole("complementary", {
+    name: "Conversation history",
+  });
+  await expect(chatPanel).toBeVisible();
+
+  await page.getByRole("button", { name: "graph", exact: true }).click();
+  await expect(page.getByText("Knowledge Graph")).toBeVisible();
+  await expect(chatPanel).toBeHidden();
+
+  await page.getByRole("button", { name: "Open conversation history" }).click();
+  await expect(conversationHistory).toBeVisible();
+  await page.getByRole("button", { name: "Close conversation history" }).click();
+  await expect(conversationHistory).toBeHidden();
+});

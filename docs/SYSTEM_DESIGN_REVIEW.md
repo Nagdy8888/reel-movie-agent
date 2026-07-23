@@ -74,6 +74,9 @@ reuse a process-wide psycopg connection pool.
 - The backend accesses the projection with a privileged direct Postgres role.
   JWT dependencies on `/graph` and `/chat` are therefore the primary runtime
   authorization boundary.
+- The Next.js 16 proxy validates Supabase claims before rendering `/chat` and
+  refreshes cookie sessions. This removes the unauthenticated page flash, but
+  the backend JWT dependency remains the authoritative data boundary.
 - RLS authenticated-read policies protect the separate PostgREST/Data API
   route.
 - No model generates SQL or Cypher.
@@ -122,6 +125,7 @@ directory) or a supported LangGraph production runtime.
 Static checks validate contracts and pure behavior, but cannot establish
 retrieval quality. Completion requires:
 
+- frontend Vitest boundary/helper tests and mocked Playwright UX coverage;
 - a healthy AGE+pgvector container;
 - the 25-movie smoke ingest;
 - a manual local/hybrid query proving key recovery;

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import type { GraphData, SourceSummary } from "@/lib/api";
 import {
   GRAPH_NODE_TYPES,
@@ -9,6 +9,7 @@ import {
   graphNodeById,
   visibleAnswerLinkKeys,
   visibleAnswerNodeIds,
+  type FullGraphStatus,
   type GraphMode,
   type GraphNodeType,
 } from "@/lib/graphView";
@@ -31,8 +32,6 @@ const CATEGORY_STYLES: Record<GraphNodeType, string> = {
   Keyword: "#557f75",
 };
 
-type FullGraphStatus = "idle" | "loading" | "ready" | "error";
-
 export interface GraphCanvasProps {
   answerGraph: GraphData;
   fullGraph: GraphData;
@@ -43,6 +42,7 @@ export interface GraphCanvasProps {
   onModeChange: (mode: GraphMode) => void;
   onRetryFullGraph: () => void;
   onSelectNode: (nodeId: string | null) => void;
+  className?: string;
 }
 
 interface SourcesDockProps {
@@ -134,6 +134,7 @@ export function GraphCanvas({
   onModeChange,
   onRetryFullGraph,
   onSelectNode,
+  className = "",
 }: GraphCanvasProps) {
   const [visibleTypes, setVisibleTypes] = useState<Set<GraphNodeType>>(
     () => new Set(GRAPH_NODE_TYPES),
@@ -162,6 +163,10 @@ export function GraphCanvas({
       (link) => link.source === selectedNode.id || link.target === selectedNode.id,
     ).length;
   }, [graphData.links, selectedNode]);
+  const keyboardNodes = useMemo(
+    () => graphData.nodes.filter((node) => visibleTypes.has(node.type)),
+    [graphData.nodes, visibleTypes],
+  );
 
   const toggleCategory = useCallback((category: GraphNodeType) => {
     setVisibleTypes((current) => {
@@ -173,8 +178,55 @@ export function GraphCanvas({
     });
   }, []);
 
+  const handleGraphKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLElement>) => {
+      if (keyboardNodes.length === 0) return;
+      const currentIndex = keyboardNodes.findIndex((node) => node.id === selectedNodeId);
+      let nextIndex: number | null = null;
+
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % keyboardNodes.length;
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        nextIndex =
+          currentIndex < 0
+            ? keyboardNodes.length - 1
+            : (currentIndex - 1 + keyboardNodes.length) % keyboardNodes.length;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = keyboardNodes.length - 1;
+      } else if ((event.key === "Enter" || event.key === " ") && currentIndex < 0) {
+        nextIndex = 0;
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        onSelectNode(null);
+        return;
+      }
+
+      if (nextIndex !== null) {
+        event.preventDefault();
+        onSelectNode(keyboardNodes[nextIndex].id);
+      }
+    },
+    [keyboardNodes, onSelectNode, selectedNodeId],
+  );
+
   return (
-    <section className="flex flex-1 min-w-0 h-full flex-col bg-canvas relative overflow-hidden">
+    <section
+      className={`flex flex-1 min-w-0 h-full flex-col bg-canvas relative overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-container ${className}`}
+      tabIndex={keyboardNodes.length > 0 ? 0 : undefined}
+      role="group"
+      aria-label="Interactive movie knowledge graph"
+      aria-describedby="graph-keyboard-help"
+      onKeyDown={handleGraphKeyDown}
+    >
+      <p id="graph-keyboard-help" className="sr-only">
+        Use arrow keys, Home, and End to move between graph entities. Press Escape to clear the
+        selection.
+      </p>
+      <p className="sr-only" aria-live="polite">
+        {selectedNode ? `Selected ${selectedNode.type}: ${selectedNode.label}` : ""}
+      </p>
       <header className="relative flex-shrink-0 glass-panel z-20 px-md py-sm">
         <div className="flex flex-wrap items-center justify-between gap-sm">
           <div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { MaterialIcon } from "@/components/MaterialIcon";
@@ -163,9 +164,29 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="bg-background text-on-surface antialiased min-h-screen flex selection:bg-primary/30 selection:text-primary">
-      <div className="hidden lg:flex w-[60%] relative overflow-hidden bg-surface-container-lowest flex-col justify-between p-margin-desktop border-r border-outline-variant/20">
-        <div className="absolute inset-0 bg-gradient-to-br from-surface-container-low via-canvas to-surface-container-lowest opacity-80" />
+    <div className="relative overflow-hidden bg-background text-on-surface antialiased min-h-screen flex selection:bg-primary/30 selection:text-primary">
+      <div aria-hidden="true" className="absolute inset-0 lg:hidden pointer-events-none">
+        <Image
+          src="https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-center opacity-[0.18] brightness-[0.4] saturate-[0.6]"
+        />
+        <div className="absolute inset-0 bg-background/80" />
+      </div>
+
+      <div className="hidden lg:flex z-10 w-[60%] relative overflow-hidden bg-surface-container-lowest flex-col justify-between p-margin-desktop border-r border-outline-variant/20">
+        <Image
+          src="https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg"
+          alt=""
+          fill
+          priority
+          sizes="60vw"
+          className="object-cover object-center opacity-[0.42] brightness-[0.48] saturate-[0.65] scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-surface-container-low via-canvas to-surface-container-lowest opacity-60" />
         <div className="absolute inset-0 bg-gradient-to-r from-background via-background/60 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/30" />
         <div className="absolute inset-0 opacity-20 pointer-events-none">
@@ -190,7 +211,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="w-full lg:w-[40%] flex flex-col justify-center items-center bg-surface-container-lowest p-margin-mobile lg:p-margin-desktop relative">
+      <div className="relative z-10 w-full lg:w-[40%] flex flex-col justify-center items-center bg-surface-container-lowest/90 lg:bg-surface-container-lowest p-margin-mobile lg:p-margin-desktop">
         <div className="lg:hidden absolute top-margin-mobile left-margin-mobile">
           <h1 className="font-display-md text-display-md text-primary tracking-tight">Reel</h1>
         </div>

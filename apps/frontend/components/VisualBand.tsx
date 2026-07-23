@@ -4,7 +4,7 @@ import { MaterialIcon } from "./MaterialIcon";
 export function VisualBand() {
   return (
     <section
-      className="py-24 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest relative z-20 border-t border-hairline"
+      className="py-24 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest/55 backdrop-blur-[2px] relative z-20 border-t border-hairline"
       id="library"
     >
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center gap-xl">

@@ -22,7 +22,7 @@ function FeatureCard({ icon, title, description }: FeatureCardProps) {
 /** Feature grid section for the landing page. */
 export function FeatureGrid() {
   return (
-    <section className="py-24 px-margin-mobile md:px-margin-desktop bg-canvas relative z-20" id="features">
+    <section className="py-24 px-margin-mobile md:px-margin-desktop bg-canvas/45 backdrop-blur-[1px] relative z-20" id="features">
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-lg">
           <FeatureCard

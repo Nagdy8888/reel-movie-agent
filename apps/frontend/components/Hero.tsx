@@ -1,29 +1,10 @@
-import Image from "next/image";
 import Link from "next/link";
 import { MaterialIcon } from "./MaterialIcon";
 
 /** Landing page hero section with decorative graph overlay. */
 export function Hero() {
   return (
-    <section className="relative w-full min-h-[90vh] flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop py-xl overflow-hidden hero-gradient">
-      <div
-        aria-hidden="true"
-        className="absolute -right-20 top-1/2 z-0 h-[78vh] w-[58vw] min-w-[300px] max-w-[520px] -translate-y-1/2 rotate-[4deg] overflow-hidden rounded-[2rem] opacity-[0.22] shadow-[0_30px_100px_rgba(0,0,0,0.8)] pointer-events-none md:right-[4vw]"
-      >
-        <Image
-          src="https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg"
-          alt=""
-          fill
-          priority
-          sizes="(max-width: 768px) 58vw, 520px"
-          className="object-cover brightness-[0.45] saturate-[0.65]"
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-canvas/20 via-transparent to-canvas/80" />
-      </div>
-      <div className="absolute inset-0 z-[1] opacity-20 pointer-events-none">
-        <div className="w-full h-full bg-gradient-to-b from-surface-container-low via-canvas to-canvas" />
-      </div>
-      <div className="absolute inset-0 z-[2] bg-gradient-to-r from-canvas via-canvas/70 to-canvas/20 pointer-events-none" />
+    <section className="relative z-10 w-full min-h-[90vh] flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop py-xl overflow-hidden hero-gradient">
       <div className="absolute inset-0 z-10 pointer-events-none opacity-30">
         <svg className="w-full h-full" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1000 1000">
           <line stroke="currentColor" className="text-hairline" strokeWidth="0.5" x1="200" x2="500" y1="300" y2="500" />
@@ -59,9 +40,9 @@ export function Hero() {
             See a demo
           </Link>
         </div>
-        <div className="w-full max-w-2xl mt-xl p-xs rounded-xl bg-canvas border border-hairline shadow-[0_8px_32px_rgba(0,0,0,0.4)] flex items-center relative group hover:border-primary/50 transition-colors duration-500">
+        <div className="w-full max-w-2xl mt-xl p-xs rounded-xl bg-canvas/90 border border-hairline shadow-[0_8px_32px_rgba(0,0,0,0.4)] flex items-center relative group hover:border-primary/50 transition-colors duration-500">
           <div className="absolute -inset-0.5 bg-primary/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-500 pointer-events-none" />
-          <div className="relative w-full flex items-center bg-canvas rounded-lg px-md py-sm">
+          <div className="relative w-full flex items-center bg-canvas/90 rounded-lg px-md py-sm">
             <MaterialIcon name="movie_filter" className="text-on-surface-variant mr-md" />
             <input
               className="w-full bg-transparent border-none text-body-lg text-on-surface focus:ring-0 placeholder:text-outline-variant outline-none"

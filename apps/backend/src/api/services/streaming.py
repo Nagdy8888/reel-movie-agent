@@ -103,6 +103,19 @@ def _artifacts_from_v3_event(
     return cast(list[SourceArtifact], sources), cast(GraphArtifact, graph)
 
 
+def _errors_from_v3_event(raw: dict[str, Any]) -> list[str] | None:
+    """Extract sanitized agent error codes from a LangGraph values event."""
+    if raw.get("method") != "values":
+        return None
+    data = raw.get("params", {}).get("data")
+    if not isinstance(data, dict) or "errors" not in data:
+        return None
+    errors = data.get("errors")
+    if not isinstance(errors, list) or not all(isinstance(item, str) for item in errors):
+        return None
+    return errors
+
+
 class ChatStreamService:
     """Own chat-thread setup, graph event translation, and turn persistence."""
 
@@ -178,6 +191,7 @@ class ChatStreamService:
         have_artifacts = False
         last_sources: list[SourceArtifact] = []
         last_graph: GraphArtifact = {"nodes": [], "links": []}
+        last_agent_errors: list[str] = []
         fallback_answer = ""
         turn_completed = False
         stream: Iterator[dict[str, Any]] | None = None
@@ -206,6 +220,19 @@ class ChatStreamService:
                 async for raw in iterate_in_threadpool(stream):
                     if await self._request.is_disconnected():
                         raise ClientDisconnectedError
+                    agent_errors = _errors_from_v3_event(raw)
+                    if agent_errors is not None and agent_errors != last_agent_errors:
+                        last_agent_errors = agent_errors
+                        if agent_errors:
+                            logger.warning(
+                                "agent retrieval degraded",
+                                extra={
+                                    "request_id": self._request_id,
+                                    "thread_id": thread_id,
+                                    "error_count": len(agent_errors),
+                                    "errors": agent_errors,
+                                },
+                            )
                     artifacts = _artifacts_from_v3_event(raw)
                     if artifacts is not None:
                         last_sources, last_graph = artifacts

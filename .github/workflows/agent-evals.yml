@@ -1,0 +1,55 @@
+name: Agent behavioral evals
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    name: Golden questions (live, cost-gated)
+    if: ${{ vars.RUN_AGENT_EVALS == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      RAG_PG_HOST: ${{ secrets.RAG_PG_HOST }}
+      RAG_PG_PORT: ${{ secrets.RAG_PG_PORT }}
+      RAG_PG_USER: ${{ secrets.RAG_PG_USER }}
+      RAG_PG_PASSWORD: ${{ secrets.RAG_PG_PASSWORD }}
+      RAG_PG_DATABASE: ${{ secrets.RAG_PG_DATABASE }}
+      RAG_PG_WORKSPACE: ${{ secrets.RAG_PG_WORKSPACE }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_PROJECT: reel-agent-evals
+      LIGHTRAG_WORKING_DIR: /tmp/reel-lightrag
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Sync workspace
+        run: uv sync --frozen --group dev
+
+      - name: Verify live evaluation services
+        run: >-
+          uv run python -c
+          "import asyncio;
+          from agents.lightrag_service import lightrag_ready;
+          assert asyncio.run(lightrag_ready()), 'LightRAG Postgres is unreachable'"
+
+      - name: Run golden behavioral evaluations
+        run: timeout 20m uv run pytest apps/agents/evals/test_golden.py -q -m agent_eval

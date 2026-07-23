@@ -10,7 +10,7 @@ import asyncpg
 import numpy as np
 from lightrag import LightRAG, QueryParam
 from lightrag.kg.shared_storage import initialize_pipeline_status
-from lightrag.utils import EmbeddingFunc, wrap_embedding_func_with_attrs
+from lightrag.utils import EmbeddingFunc
 from openai.types.chat import ChatCompletionMessageParam
 
 from agents.clients import get_async_openai_client
@@ -47,7 +47,6 @@ def _configure_postgres_env() -> None:
     )
 
 
-@wrap_embedding_func_with_attrs(embedding_dim=1536, max_token_size=8192)
 async def _embed(texts: list[str]) -> np.ndarray:
     """Embed texts with the configured OpenAI embedding model.
 
@@ -136,7 +135,7 @@ async def get_lightrag() -> LightRAG:
             embedding_func=EmbeddingFunc(
                 embedding_dim=settings.embedding_dimensions,
                 max_token_size=8192,
-                func=_embed.func,
+                func=_embed,
                 model_name=settings.openai_embed_model,
             ),
             llm_model_func=_llm,

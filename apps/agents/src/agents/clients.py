@@ -1,5 +1,6 @@
 """Cached, shared client factories for the agent."""
 
+import logging
 import os
 from functools import lru_cache
 from types import SimpleNamespace
@@ -11,11 +12,16 @@ from pydantic import SecretStr
 
 from agents.settings import get_settings
 
+logger = logging.getLogger("reel.agent")
+
 
 def configure_langsmith() -> None:
     """Export settings so direct OpenAI and ``@traceable`` calls are traced."""
     settings = get_settings()
-    os.environ.setdefault("LANGSMITH_TRACING", str(settings.langsmith_tracing).lower())
+    tracing_enabled = settings.langsmith_tracing and bool(settings.langsmith_api_key)
+    if settings.langsmith_tracing and not settings.langsmith_api_key:
+        logger.warning("LangSmith tracing requested but LANGSMITH_API_KEY is missing")
+    os.environ.setdefault("LANGSMITH_TRACING", str(tracing_enabled).lower())
     if settings.langsmith_api_key:
         os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
     os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)

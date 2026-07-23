@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-
-from langchain_core.tools import BaseTool, tool
+from dataclasses import dataclass
 
 from agents import retrieval
 from agents.async_bridge import run_sync
@@ -13,6 +12,15 @@ from agents.prompts.system import RERANK_SYSTEM_V1
 from agents.settings import get_settings
 
 MAX_CANDIDATE_CHARS = 2_500
+
+
+@dataclass(frozen=True)
+class RerankOutcome:
+    """Result and degradation details from one reranking attempt."""
+
+    candidates: list[str]
+    used_model: bool
+    error_type: str | None = None
 
 
 def strip_code_fences(text: str) -> str:
@@ -34,8 +42,8 @@ def strip_code_fences(text: str) -> str:
     return "\n".join(body).strip()
 
 
-def run_graph_query(question: str) -> str:
-    """Answer a structured question via LightRAG local context retrieval.
+def run_local_context(question: str) -> str:
+    """Retrieve structured movie context via LightRAG local mode.
 
     Args:
         question: The user's natural-language question.
@@ -87,7 +95,7 @@ def run_projection_grounding(movie_ids: list[str]) -> list[str]:
     return run_sync(retrieval.projection_grounding_for_movies(movie_ids))
 
 
-def run_rerank(question: str, candidates: list[str]) -> list[str]:
+def run_rerank(question: str, candidates: list[str]) -> RerankOutcome:
     """Reorder candidates by relevance to the question, keeping the top-k.
 
     Fail-open: on any LLM or parse error the original candidates are returned
@@ -98,11 +106,12 @@ def run_rerank(question: str, candidates: list[str]) -> list[str]:
         candidates: Retrieved context passages to reorder.
 
     Returns:
-        The most relevant passages, best first, at most ``rerank_top_k``.
+        Selected passages plus whether model ranking succeeded and an optional
+        sanitized error type.
     """
     settings = get_settings()
     if not candidates:
-        return []
+        return RerankOutcome(candidates=[], used_model=False)
     bounded = [candidate[:MAX_CANDIDATE_CHARS] for candidate in candidates]
     numbered = "\n\n".join(f"[{i}] {chunk}" for i, chunk in enumerate(bounded))
     prompt = RERANK_SYSTEM_V1.format(
@@ -115,29 +124,18 @@ def run_rerank(question: str, candidates: list[str]) -> list[str]:
         order = json.loads(raw)
         picked = [candidates[i] for i in order if isinstance(i, int) and 0 <= i < len(candidates)]
         if picked:
-            return picked[: settings.rerank_top_k]
-    except Exception:
-        pass
-    return candidates[: settings.rerank_top_k]
-
-
-@tool
-def graph_query(question: str) -> str:
-    """Answer a structured movie question via LightRAG local retrieval.
-
-    Use for precise facts: who acted in a movie, release years, box office,
-    cast/character lookups.
-    """
-    return run_graph_query(question) or "No results."
-
-
-@tool
-def semantic_search(question: str) -> str:
-    """Answer a fuzzy/plot/theme movie question via LightRAG hybrid retrieval.
-
-    Use for questions about what a movie is *about* rather than exact facts.
-    """
-    return "\n\n".join(run_semantic_search(question)) or "No results."
-
-
-TOOLS: list[BaseTool] = [graph_query, semantic_search]
+            return RerankOutcome(
+                candidates=picked[: settings.rerank_top_k],
+                used_model=True,
+            )
+        return RerankOutcome(
+            candidates=candidates[: settings.rerank_top_k],
+            used_model=False,
+            error_type="InvalidRerankSelection",
+        )
+    except Exception as exc:
+        return RerankOutcome(
+            candidates=candidates[: settings.rerank_top_k],
+            used_model=False,
+            error_type=type(exc).__name__,
+        )

@@ -10,8 +10,7 @@ from agents.projection import (
     fetch_full_projection,
     fetch_movie_neighbourhood,
     fetch_movies_by_ids,
-    fetch_movies_by_titles,
-    list_movie_titles,
+    find_movies_mentioned_in_text,
     movie_id_from_wikipedia,
 )
 
@@ -96,28 +95,11 @@ def extract_movie_keys(candidates: list[str]) -> list[str]:
         return keys[:_MAX_GRAPH_MOVIES]
 
     try:
-        titles = list_movie_titles()
-    except Exception:
-        return []
-
-    matched = [
-        title
-        for title in sorted(titles, key=len, reverse=True)
-        if title
-        and re.search(
-            rf"(?<!\w){re.escape(title)}(?!\w)",
-            blob,
-            flags=re.IGNORECASE,
-        )
-    ]
-    if not matched:
-        return []
-    try:
-        movies = fetch_movies_by_titles(matched)
+        movies = find_movies_mentioned_in_text(blob)
     except Exception:
         return []
     for movie in movies:
-        if movie["id"] not in seen:
+        if title_mentioned_in_text(movie["title"], blob) and movie["id"] not in seen:
             seen.add(movie["id"])
             keys.append(movie["id"])
             if len(keys) >= _MAX_GRAPH_MOVIES:

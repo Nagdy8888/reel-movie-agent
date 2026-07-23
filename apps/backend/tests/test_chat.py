@@ -1,10 +1,53 @@
 """Contract tests for the SSE chat endpoint."""
 
 import json
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
+
+
+def test_chat_logs_sanitized_agent_errors(auth_client: TestClient, caplog) -> None:
+    """Retrieval degradation is correlated in backend logs, not sent to clients."""
+
+    def _stream_events(_inputs, _config, *, version):
+        """Emit one degraded state followed by a complete answer."""
+        del version
+        yield {
+            "method": "values",
+            "params": {
+                "data": {
+                    "errors": ["hybrid_context:TimeoutError"],
+                    "sources": [],
+                    "graph": {"nodes": [], "links": []},
+                }
+            },
+        }
+        yield {
+            "method": "messages",
+            "params": {
+                "data": (
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": "Grounded answer"},
+                    },
+                    {"langgraph_node": "generate"},
+                )
+            },
+        }
+
+    auth_client.app.state.graph.stream_events = _stream_events
+    with (
+        patch("api.services.streaming.generate_conversation_title", return_value="Answer"),
+        caplog.at_level(logging.WARNING, logger="reel.chat"),
+    ):
+        response = auth_client.post("/chat", json={"message": "Suggest a movie"})
+
+    records = [record for record in caplog.records if record.message == "agent retrieval degraded"]
+    assert len(records) == 1
+    assert records[0].errors == ["hybrid_context:TimeoutError"]
+    assert "TimeoutError" not in response.text
 
 
 def test_chat_requires_auth(anon_client: TestClient) -> None:

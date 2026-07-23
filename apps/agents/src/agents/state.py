@@ -1,6 +1,5 @@
 """State schema for the Reel agent graph."""
 
-import operator
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AnyMessage
@@ -19,8 +18,9 @@ class AgentState(TypedDict):
         each turn (last-write-wins) because it is derived fresh from retrieval.
     sources: structured movie cards for the current turn's right pane.
     graph: person–movie subgraph explored during retrieval for the current turn.
-    errors: non-fatal retrieval/generation issues, kept for observability.
-        Reducer `operator.add` appends so nodes never clobber prior entries.
+    errors: non-fatal retrieval/generation issues for the current turn.
+        Overwritten each turn so checkpointed failures never leak into a later
+        response.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -28,22 +28,22 @@ class AgentState(TypedDict):
     context: str
     sources: list[dict[str, Any]]
     graph: dict[str, Any]
-    errors: Annotated[list[str], operator.add]
+    errors: list[str]
 
 
 class RouteUpdate(TypedDict):
     """State update produced by the `route` node.
 
-    Also resets the per-turn artifacts (`context`, `sources`, `graph`) so a
-    prior turn's values never linger in the checkpointed state — important for
-    `chitchat` turns, which skip `retrieve` and would otherwise keep showing the
-    previous answer's movie cards and subgraph.
+    Also resets the per-turn artifacts (`context`, `sources`, `graph`, and
+    `errors`) so prior values never linger in checkpointed state — important
+    for `chitchat` turns, which skip `retrieve`.
     """
 
     intent: str
     context: str
     sources: list[dict[str, Any]]
     graph: dict[str, Any]
+    errors: list[str]
 
 
 class RetrieveUpdate(TypedDict):

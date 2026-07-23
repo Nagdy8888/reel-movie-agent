@@ -158,7 +158,8 @@ stateDiagram-v2
     note right of route
         One utility-LLM classification.
         Resets per-turn artifacts
-        (context / sources / graph).
+        (context / sources / graph / errors).
+        Exact-label output only.
         Unclassifiable -> factual.
     end note
 
@@ -170,7 +171,8 @@ stateDiagram-v2
     end note
 
     note right of generate
-        Grounded answer with citations.
+        Grounded answer with movie:id citations.
+        Unsupported/missing citation -> fixed reply.
         Empty context -> fixed reply,
         no LLM call (fail-closed).
     end note
@@ -185,7 +187,7 @@ stateDiagram-v2
 | `context` | last-write-wins | Merged, reranked grounding text |
 | `sources` | last-write-wins | Movie cards for the right pane |
 | `graph` | last-write-wins | Person–movie subgraph for the answer |
-| `errors` | `operator.add` (append) | Non-fatal retrieval/generation issues |
+| `errors` | last-write-wins | Sanitized non-fatal issues for the current turn |
 
 ---
 
@@ -196,7 +198,7 @@ receives **context** — it never generates a query.
 
 ```mermaid
 flowchart TB
-    q[/"latest user question"/] --> local["run_graph_query<br/>LightRAG local (facts)"]
+    q[/"latest user question"/] --> local["run_local_context<br/>LightRAG local (facts)"]
     q --> hybrid["run_semantic_search<br/>LightRAG hybrid (plot/theme)"]
 
     local --> merge{{merge candidates}}
@@ -212,7 +214,7 @@ flowchart TB
     mapped -->|no| failclosed["blank context<br/>flag error (fail-closed)"]
     mapped -->|yes| ground["run_projection_grounding<br/>inject typed cast / genres / box office"]
 
-    ground --> ctx[/"context (up to 14k chars)<br/>+ sources + subgraph"/]
+    ground --> ctx[/"boundary-capped context (up to 14k chars)<br/>+ sources + subgraph"/]
     failclosed --> ctx
 ```
 
@@ -223,7 +225,13 @@ Key behaviors:
 - **Projection grounding:** LightRAG plot extraction often yields *character* entities
   without actor names, so typed cast/genre/box-office data is injected from Supabase to
   make "who starred in …" answerable.
-- **Context cap:** merged context is truncated to `MAX_GENERATION_CONTEXT_CHARS = 14_000`.
+- **Context cap:** merged context stops at complete passage boundaries before
+  `MAX_GENERATION_CONTEXT_CHARS = 14_000`; a fact is never cut mid-passage.
+- **Injection resistance:** router, reranker, and generator fence untrusted user or
+  retrieved text and treat it as data. Router output must be one exact intent label.
+- **Citation gate:** non-empty answers must cite `Movie Title [movie:id]`; every ID and
+  title is checked against `sources`, otherwise generation returns the fixed fail-closed
+  reply.
 
 ---
 
@@ -487,14 +495,18 @@ OpenAPI/Swagger is served at `/docs` when the backend runs.
 - **Resilience:** eager fail-fast `lifespan` (graph + pools built at boot); per-node
   `RetryPolicy`; fail-closed retrieval; generic `500` body with a `request_id` (never
   leaks internals).
-- **Observability:** structured JSON logs + request-ID middleware at the HTTP edge;
-  LangSmith tracing bridged into the process env so backend-driven runs are traced.
+- **Observability:** structured JSON logs correlate request and `thread_id` across the
+  HTTP and agent layers. Per-node outcomes and sanitized retrieval errors are also
+  attached to LangSmith traces; tracing logs a warning when requested without a key.
 - **Security:** parameterized SQL, no model-generated queries, JWT + ownership scoping,
   explicit CORS allowlist in prod, security headers, secrets kept in env only.
 - **Performance:** `@lru_cache` LLM client singletons (each with `timeout` + `max_tokens`),
   a LightRAG singleton behind an `asyncio.Lock`, pooled Postgres connections, gzip, and a
   cached full-graph snapshot. Sync work (psycopg, the sync LangGraph iterator) is offloaded
   via `run_in_threadpool` / `iterate_in_threadpool` so the event loop stays responsive.
+- **Evaluation:** deterministic unit/contract tests run on every PR. A versioned live
+  golden set covers cast, plot, recommendation, unknown, and injection behavior; its
+  scheduled/manual workflow is disabled unless `RUN_AGENT_EVALS=true`.
 
 For the deeper trade-off analysis (caching TTLs, scaling seams, cost model, SPOFs), see
 the review notes and [`docs/setup/deployment.md`](setup/deployment.md).

@@ -9,11 +9,11 @@ import { LandingPosterBackdrop } from "@/components/LandingPosterBackdrop";
 /** Marketing landing page — static content, not wired to the backend. */
 export default function LandingPage() {
   return (
-    <div className="relative isolate overflow-x-hidden text-on-background font-body-lg min-h-screen flex flex-col bg-canvas">
+    <div className="relative overflow-x-hidden text-on-background font-body-lg min-h-screen flex flex-col bg-canvas">
       <LandingPosterBackdrop />
-      <div className="relative z-10 flex min-h-screen flex-col">
+      <div className="relative z-10 flex min-h-screen flex-col bg-transparent">
         <TopNavBar />
-        <main className="flex-grow pt-24">
+        <main className="flex-grow bg-transparent pt-24">
           <Hero />
           <HowItWorks />
           <FeatureGrid />

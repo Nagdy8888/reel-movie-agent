@@ -3,57 +3,39 @@ import Image from "next/image";
 const PAGE_POSTERS = [
   {
     src: "https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
-    className:
-      "hidden sm:block right-[-4%] top-[4%] h-[52vh] w-[38vw] max-w-[360px] rotate-[5deg] opacity-[0.18]",
-    sizes: "(max-width: 1024px) 38vw, 360px",
+    className: "right-[-2%] top-[3%] h-[420px] w-[280px] rotate-[5deg] sm:right-[4%]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
-    className:
-      "hidden md:block left-[-6%] top-[8%] h-[48vh] w-[32vw] max-w-[300px] -rotate-[7deg] opacity-[0.15]",
-    sizes: "(max-width: 1280px) 32vw, 300px",
+    className: "left-[-4%] top-[6%] h-[380px] w-[250px] -rotate-[7deg] sm:left-[2%]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
-    className:
-      "right-[6%] top-[22%] h-[44vh] w-[42vw] max-w-[280px] rotate-[8deg] opacity-[0.14] sm:right-[14%]",
-    sizes: "(max-width: 768px) 42vw, 280px",
+    className: "right-[8%] top-[20%] h-[360px] w-[240px] rotate-[8deg]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
-    className:
-      "hidden lg:block left-[8%] top-[28%] h-[42vh] w-[26vw] max-w-[260px] -rotate-[4deg] opacity-[0.14]",
-    sizes: "260px",
+    className: "left-[6%] top-[26%] h-[340px] w-[230px] -rotate-[4deg]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
-    className:
-      "hidden md:block right-[-3%] top-[42%] h-[46vh] w-[34vw] max-w-[300px] rotate-[-3deg] opacity-[0.15]",
-    sizes: "(max-width: 1280px) 34vw, 300px",
+    className: "right-[-1%] top-[40%] h-[380px] w-[250px] -rotate-[3deg] sm:right-[6%]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/udDclJoHjfjb8Ekgsd4FDteOkCU.jpg",
-    className:
-      "left-[-4%] top-[48%] h-[42vh] w-[44vw] max-w-[270px] rotate-[6deg] opacity-[0.13] sm:left-[4%]",
-    sizes: "(max-width: 768px) 44vw, 270px",
+    className: "left-[-2%] top-[46%] h-[350px] w-[230px] rotate-[6deg] sm:left-[8%]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg",
-    className:
-      "hidden lg:block right-[12%] top-[62%] h-[40vh] w-[24vw] max-w-[250px] rotate-[4deg] opacity-[0.14]",
-    sizes: "250px",
+    className: "right-[10%] top-[60%] h-[340px] w-[220px] rotate-[4deg]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
-    className:
-      "hidden md:block left-[10%] top-[72%] h-[44vh] w-[30vw] max-w-[280px] -rotate-[6deg] opacity-[0.14]",
-    sizes: "(max-width: 1280px) 30vw, 280px",
+    className: "left-[8%] top-[70%] h-[360px] w-[240px] -rotate-[6deg]",
   },
   {
     src: "https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
-    className:
-      "right-[-5%] top-[84%] h-[40vh] w-[40vw] max-w-[260px] rotate-[7deg] opacity-[0.12] sm:right-[8%]",
-    sizes: "(max-width: 768px) 40vw, 260px",
+    className: "right-[4%] top-[82%] h-[320px] w-[210px] rotate-[7deg]",
   },
 ] as const;
 
@@ -64,21 +46,22 @@ export function LandingPosterBackdrop() {
       {PAGE_POSTERS.map((poster, index) => (
         <div
           key={`${poster.src}-${index}`}
-          className={`absolute min-w-[160px] overflow-hidden rounded-[1.75rem] shadow-[0_30px_100px_rgba(0,0,0,0.8)] ${poster.className}`}
+          className={`absolute overflow-hidden rounded-2xl opacity-45 shadow-[0_24px_80px_rgba(0,0,0,0.75)] ${poster.className}`}
         >
           <Image
             src={poster.src}
             alt=""
             fill
-            sizes={poster.sizes}
-            className="object-cover brightness-[0.4] saturate-[0.55]"
-            priority={index < 3}
+            sizes="280px"
+            unoptimized
+            priority={index < 4}
+            className="object-cover brightness-[0.55] saturate-[0.7]"
           />
-          <div className="absolute inset-0 bg-gradient-to-br from-canvas/30 via-transparent to-canvas/90" />
+          <div className="absolute inset-0 bg-gradient-to-t from-canvas/70 via-canvas/15 to-transparent" />
         </div>
       ))}
-      <div className="absolute inset-0 bg-gradient-to-b from-canvas/55 via-canvas/35 to-canvas/70" />
-      <div className="absolute inset-0 bg-gradient-to-r from-canvas/50 via-transparent to-canvas/45" />
+      {/* Soft center wash so copy stays readable without wiping posters out */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(14,14,17,0.55)_0%,rgba(14,14,17,0.15)_55%,transparent_75%)]" />
     </div>
   );
 }

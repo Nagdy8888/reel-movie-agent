@@ -1,7 +1,7 @@
 /** Site footer shared across marketing pages. */
 export function Footer() {
   return (
-    <footer className="relative z-20 bg-surface-container-lowest/70 backdrop-blur-[2px] w-full py-xl border-t border-outline-variant/10">
+    <footer className="relative z-20 bg-surface-container-lowest/45 w-full py-xl border-t border-outline-variant/10">
       <div className="flex flex-col md:flex-row justify-between items-center px-margin-mobile md:px-margin-desktop gap-lg max-w-[1600px] mx-auto w-full">
         <div className="flex flex-col md:flex-row items-center gap-md">
           <span className="font-display-md text-display-md text-primary">Reel</span>

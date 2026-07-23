@@ -22,7 +22,7 @@ function HowItWorksCard({ icon, title, description }: HowItWorksCardProps) {
 export function HowItWorks() {
   return (
     <section
-      className="py-24 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest/55 backdrop-blur-[2px] relative z-20"
+      className="py-24 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest/35 relative z-20"
       id="discover"
     >
       <div className="max-w-7xl mx-auto">

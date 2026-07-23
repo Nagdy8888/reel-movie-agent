@@ -25,9 +25,14 @@ body {
   box-shadow: 0 0 20px rgba(232, 180, 87, 0.15);
 }
 
-/* Landing hero radial wash */
+/* Landing hero radial wash — keep transparent enough for ambient posters */
 .hero-gradient {
-  background: radial-gradient(circle at 50% 30%, rgba(232, 180, 87, 0.05) 0%, rgba(14, 14, 17, 1) 70%);
+  background: radial-gradient(
+    circle at 50% 30%,
+    rgba(232, 180, 87, 0.06) 0%,
+    rgba(14, 14, 17, 0.35) 45%,
+    rgba(14, 14, 17, 0.15) 100%
+  );
 }
 
 /* Gold text shadow (brand wordmark, movie titles on cards) */

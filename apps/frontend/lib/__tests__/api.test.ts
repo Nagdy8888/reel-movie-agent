@@ -22,6 +22,15 @@ describe("parseSseFrame", () => {
       type: "token",
       text: "hello",
     });
+    expect(
+      parseSseFrame(
+        'event: error\ndata: {"code":"timeout","request_id":"request-1"}',
+      ),
+    ).toEqual({
+      type: "error",
+      code: "timeout",
+      request_id: "request-1",
+    });
   });
 
   it("rejects malformed JSON and invalid payload shapes", () => {

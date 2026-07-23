@@ -31,6 +31,7 @@ Copy [`.env.example`](../../.env.example) and fill every required value. Critica
 | `LIGHTRAG_WORKING_DIR` | Persistent working dir for LightRAG artifacts. |
 | `TMDB_API_ACCESS_TOKEN` | Poster enrichment during ingestion. |
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` | Keep bounded (defaults in `.env.example`). |
+| `CHAT_STREAM_TIMEOUT_SECONDS` | Overall backend deadline for one streamed graph turn (default 90 seconds). |
 | `LANGSMITH_*` | Recommended for production observability (token traces). |
 
 Frontend build-time public vars (e.g. Docker build-args / hosting env):
@@ -145,7 +146,10 @@ Until one of those is done, retrieval fails closed even if `/health` is fine.
 
 ## CI
 
-GitHub Actions should run the Python gate (`ruff`, `ruff format --check`, `pyright`, `pytest`) and frontend `lint` + `tsc`. Do not call live OpenAI/TMDB/DB from unit tests.
+GitHub Actions runs the Python gate (`ruff`, `ruff format --check`, `pyright`,
+`pytest`) plus frontend lint, type-check, unit, build, and mocked Playwright UX
+coverage. Chat tests exercise timeout, safe mid-stream errors, and rate limits
+without calling live OpenAI/TMDB/databases.
 
 ## Rollback
 

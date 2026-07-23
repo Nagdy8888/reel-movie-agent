@@ -1,5 +1,6 @@
 """Cross-cutting middleware: request-id, security headers, structured logging."""
 
+import hashlib
 import logging
 import time
 import uuid
@@ -28,6 +29,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers.update(_SECURITY_HEADERS)
         response.headers["X-Request-ID"] = request_id
+        user_id = getattr(request.state, "user_id", None)
         logger.info(
             "request",
             extra={
@@ -36,6 +38,9 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 "path": request.url.path,
                 "status": response.status_code,
                 "ms": round((time.perf_counter() - start) * 1000, 1),
+                "user_ref": (
+                    hashlib.sha256(user_id.encode()).hexdigest()[:12] if user_id else None
+                ),
             },
         )
         return response

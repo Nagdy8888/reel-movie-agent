@@ -99,6 +99,7 @@ export type ChatEvent =
   | { type: "token"; text: string }
   | { type: "sources"; sources: SourceSummary[] }
   | { type: "graph"; graph: GraphData }
+  | { type: "error"; code: string; request_id: string }
   | { type: "done" };
 
 /** Parse and validate one SSE frame, returning null for malformed or unknown data. */
@@ -140,6 +141,13 @@ export function parseSseFrame(frame: string): ChatEvent | null {
   if (eventName === "graph") {
     const parsed = graphDataSchema.safeParse(payload);
     return parsed.success ? { type: "graph", graph: parsed.data } : null;
+  }
+
+  if (eventName === "error") {
+    const parsed = z
+      .object({ code: z.string(), request_id: z.string() })
+      .safeParse(payload);
+    return parsed.success ? { type: "error", ...parsed.data } : null;
   }
 
   const parsed = z.object({ token: z.string() }).safeParse(payload);

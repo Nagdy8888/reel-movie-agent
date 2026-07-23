@@ -1,5 +1,6 @@
 """Environment-backed configuration for the backend."""
 
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
@@ -37,12 +38,18 @@ class BackendSettings(BaseSettings):
     supabase_db_url: str = Field(
         default="", description="Postgres URL for chat persistence (Supabase)."
     )
+    chat_stream_timeout_seconds: float = Field(
+        default=90.0,
+        gt=0,
+        description="Overall deadline for one streamed agent turn in seconds.",
+    )
 
     def origins(self) -> list[str]:
         """Return the CORS origin allowlist as a list."""
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
 
+@lru_cache(maxsize=1)
 def get_settings() -> BackendSettings:
-    """Return backend settings."""
+    """Return process-cached backend settings."""
     return BackendSettings()

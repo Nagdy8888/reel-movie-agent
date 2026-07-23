@@ -117,3 +117,29 @@ def get_settings() -> AgentSettings:
     # model_validate loads from env without pyright treating required
     # fields as missing constructor kwargs.
     return AgentSettings.model_validate({})
+
+
+def validate_runtime_settings(settings: AgentSettings) -> None:
+    """Reject missing or placeholder settings required by agent runtime paths.
+
+    Args:
+        settings: Loaded agent settings to validate.
+
+    Raises:
+        RuntimeError: If a required OpenAI, LightRAG, or Supabase value is unsafe.
+    """
+    required = {
+        "OPENAI_API_KEY": settings.openai_api_key,
+        "RAG_PG_HOST": settings.rag_pg_host,
+        "RAG_PG_USER": settings.rag_pg_user,
+        "RAG_PG_PASSWORD": settings.rag_pg_password,
+        "RAG_PG_DATABASE": settings.rag_pg_database,
+        "SUPABASE_DB_URL": settings.supabase_db_url,
+    }
+    invalid = [
+        name
+        for name, value in required.items()
+        if not value.strip() or "change-me" in value.casefold()
+    ]
+    if invalid:
+        raise RuntimeError(f"Missing/placeholder agent config: {invalid}")

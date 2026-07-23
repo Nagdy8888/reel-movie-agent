@@ -22,6 +22,12 @@ from agents.lightrag_service import (
 )
 from agents.memory import build_checkpointer, build_store
 from agents.projection import close_projection_pool
+from agents.settings import (
+    get_settings as get_agent_settings,
+)
+from agents.settings import (
+    validate_runtime_settings,
+)
 from api.db import open_pool
 from api.limiter import limiter
 from api.middleware import RequestContextMiddleware
@@ -62,6 +68,8 @@ def _configure_tracing(settings: BackendSettings) -> None:
 
 def _validate_env(settings: BackendSettings) -> None:
     """Fail fast if required secrets are missing or placeholders in prod."""
+    if "*" in settings.origins():
+        raise RuntimeError("CORS_ALLOW_ORIGINS cannot contain '*' when credentials are enabled")
     if settings.app_env == "prod":
         missing = [
             k
@@ -74,6 +82,7 @@ def _validate_env(settings: BackendSettings) -> None:
         ]
         if missing:
             raise RuntimeError(f"Missing/placeholder config in prod: {missing}")
+        validate_runtime_settings(get_agent_settings())
 
 
 @asynccontextmanager

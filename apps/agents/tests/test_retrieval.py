@@ -32,7 +32,7 @@ async def test_query_modes_delegate_to_lightrag(monkeypatch) -> None:
     ]
 
 
-def test_run_graph_query_bridges_async(monkeypatch) -> None:
+def test_run_local_context_bridges_async(monkeypatch) -> None:
     """Sync tools keep the nodes.py signature over the async facade."""
 
     async def fake_local(question: str) -> str:
@@ -40,7 +40,7 @@ def test_run_graph_query_bridges_async(monkeypatch) -> None:
         return f"local:{question} movie:7"
 
     monkeypatch.setattr("agents.retrieval.query_local_context", fake_local)
-    assert tools.run_graph_query("cast of Foo") == "local:cast of Foo movie:7"
+    assert tools.run_local_context("cast of Foo") == "local:cast of Foo movie:7"
 
 
 def test_recommendation_fallback_formats_movie_keys(monkeypatch) -> None:
@@ -86,4 +86,24 @@ def test_rerank_preserves_untruncated_context_for_movie_key_recovery(monkeypatch
         lambda: SimpleNamespace(rerank_top_k=5),
     )
 
-    assert tools.run_rerank("question", [candidate]) == [candidate]
+    outcome = tools.run_rerank("question", [candidate])
+    assert outcome.candidates == [candidate]
+    assert outcome.used_model is True
+    assert outcome.error_type is None
+
+
+def test_rerank_reports_sanitized_degradation(monkeypatch) -> None:
+    """A utility-LLM failure is observable while original context survives."""
+    fake_llm = SimpleNamespace(
+        invoke=lambda _prompt: (_ for _ in ()).throw(TimeoutError("private detail")),
+    )
+    monkeypatch.setattr("agents.tools.get_utility_llm", lambda: fake_llm)
+    monkeypatch.setattr(
+        "agents.tools.get_settings",
+        lambda: SimpleNamespace(rerank_top_k=5),
+    )
+
+    outcome = tools.run_rerank("question", ["movie:42"])
+    assert outcome.candidates == ["movie:42"]
+    assert outcome.used_model is False
+    assert outcome.error_type == "TimeoutError"

@@ -48,6 +48,9 @@ asyncio_mode = "auto"
 testpaths = ["apps/agents/tests", "apps/backend/tests"]
 addopts = "--import-mode=importlib"
 pythonpath = [".", "apps/agents/src", "apps/backend/src"]
+markers = [
+  "agent_eval: live, cost-bearing agent behavior evaluation",
+]
 
 [tool.pyright]
 pythonVersion = "3.11"

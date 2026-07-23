@@ -183,6 +183,9 @@ uv run ruff format --check .
 uv run pyright
 uv run pytest
 
+# Live agent behavior (cost-bearing; requires OpenAI + both databases)
+uv run pytest apps/agents/evals/test_golden.py -q -m agent_eval
+
 # Frontend (from apps/frontend)
 pnpm lint
 pnpm typecheck
@@ -192,6 +195,9 @@ pnpm test:e2e      # Playwright
 
 CI (`.github/workflows/ci.yml`) runs the Python gate (ruff · pyright · pytest) and a
 frontend gate (lint · types · unit · build · Playwright) on every PR.
+`.github/workflows/agent-evals.yml` runs the versioned golden questions on a schedule
+or manually only when the repository variable `RUN_AGENT_EVALS=true` and its service
+secrets are configured.
 
 ---
 
@@ -204,7 +210,12 @@ frontend gate (lint · types · unit · build · Playwright) on every PR.
   `acted_in`, `in_genre`) — not the LightRAG AGE graph.
 - **Memory / auth:** Supabase Postgres checkpointer/store keyed by `thread_id` + JWT
   verified against Supabase JWKS; chat data is ownership-scoped in SQL.
-- **Tracing:** LangSmith for ingestion and query-time LLM calls.
+- **Grounding:** generation requires stable `movie:{id}` citations that match the
+  retrieved source cards; unsupported or missing citations fail closed.
+- **Observability:** per-node structured logs and LangSmith metadata carry `thread_id`,
+  retrieval hit counts, degraded stages, source counts, and fail-closed reasons.
+- **Evaluation:** an offline-validated golden set covers factual quality,
+  recommendations, unknowns, and prompt injection; live runs are cost-gated.
 
 Diagrams for every layer (context, containers, topology, agent graph, retrieval, SSE
 sequence, auth, data model, ingestion, frontend) live in

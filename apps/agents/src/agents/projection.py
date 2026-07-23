@@ -140,38 +140,35 @@ def fetch_movies_by_ids(movie_ids: list[str]) -> list[MovieRow]:
     return [by_id[mid] for mid in movie_ids if mid in by_id]
 
 
-def fetch_movies_by_titles(titles: list[str]) -> list[MovieRow]:
-    """Resolve movie titles (case-insensitive) to projection rows.
+def find_movies_mentioned_in_text(text: str, *, limit: int = 200) -> list[MovieRow]:
+    """Return projection movies whose titles occur in a context blob.
+
+    The containment filter runs in Postgres so a key miss no longer transfers
+    and scans every title in the Python process. Callers apply final whole-word
+    checks to the bounded result.
 
     Args:
-        titles: Candidate movie titles from retrieval context.
+        text: Retrieved context that may contain title-only movie references.
+        limit: Maximum candidate rows returned, longest titles first.
 
     Returns:
-        Matching movies in first-seen title order (duplicates skipped).
+        Candidate movie rows ordered by descending title length.
     """
-    if not titles:
+    if not text.strip():
         return []
-    lowered = [title.casefold() for title in titles]
     with get_projection_pool().connection() as conn:
         rows = conn.execute(
             """
             SELECT id, wikipedia_id, title, year, box_office, poster_url, subtitle
             FROM public.movies
-            WHERE lower(title) = ANY(%s)
+            WHERE title <> ''
+              AND strpos(lower(%s), lower(title)) > 0
+            ORDER BY char_length(title) DESC, title, id
+            LIMIT %s
             """,
-            (lowered,),
+            (text, limit),
         ).fetchall()
-    by_title = {str(row["title"]).casefold(): MovieRow(**row) for row in rows}
-    seen: set[str] = set()
-    result: list[MovieRow] = []
-    for title in titles:
-        key = title.casefold()
-        movie = by_title.get(key)
-        if movie is None or movie["id"] in seen:
-            continue
-        seen.add(movie["id"])
-        result.append(movie)
-    return result
+    return [MovieRow(**row) for row in rows]
 
 
 def fetch_cast_names(
@@ -449,17 +446,6 @@ def fetch_top_box_office_movies(limit: int) -> list[MovieRow]:
             (limit,),
         ).fetchall()
     return [MovieRow(**row) for row in rows]
-
-
-def list_movie_titles() -> list[str]:
-    """Return all projection movie titles for title-fallback recovery.
-
-    Returns:
-        Title strings currently stored in ``public.movies``.
-    """
-    with get_projection_pool().connection() as conn:
-        rows = conn.execute("SELECT title FROM public.movies ORDER BY title").fetchall()
-    return [str(row["title"]) for row in rows if row.get("title")]
 
 
 def format_movie_context(

@@ -19,7 +19,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from agents.clients import configure_langsmith
 from agents.lightrag_service import finalize_lightrag, get_lightrag
 from agents.projection import movie_id_from_wikipedia, named_node_id, person_id_from_freebase
-from agents.settings import get_settings
+from agents.settings import get_settings, validate_runtime_settings
 
 _ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_DATA_DIR = _ROOT / "datasets" / "MovieSummaries"
@@ -647,6 +647,8 @@ async def run_ingest(*, data_dir: Path, limit: int) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point for hybrid CMU ingestion."""
+    settings = get_settings()
+    validate_runtime_settings(settings)
     configure_langsmith()
     parser = argparse.ArgumentParser(
         description="Ingest a CMU movie subset into LightRAG + Supabase."
@@ -664,7 +666,6 @@ def main(argv: list[str] | None = None) -> None:
         help=f"CMU MovieSummaries directory (default: {_DEFAULT_DATA_DIR}).",
     )
     args = parser.parse_args(argv)
-    settings = get_settings()
     limit = args.limit if args.limit is not None else settings.subset_size
     asyncio.run(_run_cli(data_dir=args.data_dir, limit=limit))
 

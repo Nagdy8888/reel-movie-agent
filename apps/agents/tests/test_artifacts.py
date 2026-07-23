@@ -40,12 +40,8 @@ def test_extract_movie_ids_deduplicates_stable_ids() -> None:
 def test_extract_movie_keys_title_fallback(monkeypatch) -> None:
     """When keys are absent, titles found in context map to projection IDs."""
     monkeypatch.setattr(
-        "agents.artifacts.list_movie_titles",
-        lambda: ["Forrest Gump", "The Matrix"],
-    )
-    monkeypatch.setattr(
-        "agents.artifacts.fetch_movies_by_titles",
-        lambda titles: (
+        "agents.artifacts.find_movies_mentioned_in_text",
+        lambda text: (
             [
                 {
                     "id": "movie:13",
@@ -57,7 +53,7 @@ def test_extract_movie_keys_title_fallback(monkeypatch) -> None:
                     "subtitle": None,
                 }
             ]
-            if "Forrest Gump" in titles
+            if "Forrest Gump" in text
             else []
         ),
     )

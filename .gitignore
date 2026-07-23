@@ -20,9 +20,6 @@ lightrag-prod.dump
 infra/aws/reel-ec2-key.pem
 infra/aws/budget-*.json
 
-# Cursor MCP config (contains credentials)
-.cursor/mcp.json
-
 # Node
 node_modules/
 .next/
@@ -30,20 +27,31 @@ node_modules/
 # OS
 .DS_Store
 
-# Stitch Folder
+# Cursor (rules, skills, plans, phases, settings, MCP credentials)
+.cursor/
+
+# Frontend AI assistant instructions
+apps/frontend/CLAUDE.md
+apps/frontend/AGENTS.md
+
+# Stitch design export
 stitch_reel_ai_movie_assistant/
 
-# prev_review_folder
+# Internal reviews & planning docs
+prev-review/
 prev_review/
+review/
+docs/PRODUCTION_READINESS_REVIEW.md
+docs/REPO_STRENGTHS.md
+docs/SYSTEM_DESIGN_REVIEW.md
 
+# One-off scripts
+scripts/smoke_phase6.py
+
+# AWS deploy artifacts
 infra/aws/.env.prod
 infra/aws/tmp-eic*
-
-
 infra/aws/reel-deploy
 infra/aws/reel-deploy.pub
 infra/aws/reel-backend.tar
 infra/aws/vercel-files-manifest.json
-
-infra/aws/tmp-eic
-infra/aws/tmp-eic.pub

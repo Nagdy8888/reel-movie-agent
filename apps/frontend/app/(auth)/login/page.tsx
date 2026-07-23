@@ -7,6 +7,9 @@ import { MaterialIcon } from "@/components/MaterialIcon";
 
 type AuthView = "signin" | "signup" | "forgot" | "updatePassword";
 
+const DEMO_EMAIL = "demo@demo.com";
+const DEMO_PASSWORD = "123456";
+
 /** Sign-in / sign-up page with Supabase auth. */
 export default function LoginPage() {
   const router = useRouter();
@@ -22,6 +25,7 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isPasswordRecovery = params.get("reset") === "1";
+    const shouldOpenDemo = params.get("demo") === "1";
     queueMicrotask(() => {
       if (isPasswordRecovery) setView("updatePassword");
       if (params.has("error")) {
@@ -29,9 +33,28 @@ export default function LoginPage() {
       }
     });
 
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && !isPasswordRecovery) router.replace("/chat");
-    });
+    void (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && !isPasswordRecovery) {
+        router.replace("/chat");
+        return;
+      }
+
+      if (shouldOpenDemo && !isPasswordRecovery) {
+        setError(null);
+        setLoading(true);
+        const { error: authError } = await supabase.auth.signInWithPassword({
+          email: DEMO_EMAIL,
+          password: DEMO_PASSWORD,
+        });
+        setLoading(false);
+        if (authError) {
+          setError(authError.message);
+          return;
+        }
+        router.replace("/chat");
+      }
+    })();
   }, [router]);
 
   const handleAuthSuccess = () => {
@@ -43,6 +66,22 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (authError) {
+      setError(authError.message);
+      return;
+    }
+    handleAuthSuccess();
+  };
+
+  const handleDemoSignIn = async () => {
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: DEMO_EMAIL,
+      password: DEMO_PASSWORD,
+    });
     setLoading(false);
     if (authError) {
       setError(authError.message);
@@ -264,6 +303,15 @@ export default function LoginPage() {
                 </span>
                 <div className="flex-grow border-t border-outline-variant/40" />
               </div>
+              <button
+                type="button"
+                onClick={() => void handleDemoSignIn()}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-sm border border-primary/60 bg-primary/10 text-primary font-title-md text-title-md py-3 rounded-lg hover:bg-primary/20 active:bg-primary/25 transition-all duration-200 disabled:opacity-50"
+              >
+                <MaterialIcon name="movie_filter" size={20} />
+                Use demo account
+              </button>
               <button
                 type="button"
                 onClick={() => void handleGoogle()}

@@ -36,12 +36,12 @@ export function Hero() {
           >
             Start chatting
           </Link>
-          <a
-            href="#discover"
+          <Link
+            href="/login?demo=1"
             className="bg-transparent text-inverse-surface border border-hairline font-title-md text-title-md px-xl py-md rounded font-semibold hover:bg-surface-variant/50 transition-all text-center"
           >
             See a demo
-          </a>
+          </Link>
         </div>
         <div className="w-full max-w-2xl mt-xl p-xs rounded-xl bg-canvas border border-hairline shadow-[0_8px_32px_rgba(0,0,0,0.4)] flex items-center relative group hover:border-primary/50 transition-colors duration-500">
           <div className="absolute -inset-0.5 bg-primary/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-500 pointer-events-none" />

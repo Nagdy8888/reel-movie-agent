@@ -7,8 +7,19 @@ import { MaterialIcon } from "@/components/MaterialIcon";
 
 type AuthView = "signin" | "signup" | "forgot" | "updatePassword";
 
-const DEMO_EMAIL = "demo@demo.com";
-const DEMO_PASSWORD = "123456";
+/** Start the intentionally public demo session without exposing its credentials. */
+async function signInToDemo(): Promise<string | null> {
+  try {
+    const response = await fetch("/api/auth/demo", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    if (response.ok) return null;
+  } catch {
+    // The generic message below avoids exposing server or Supabase details.
+  }
+  return "The demo account is temporarily unavailable. Please try again later.";
+}
 
 /** Sign-in / sign-up page with Supabase auth. */
 export default function LoginPage() {
@@ -43,16 +54,14 @@ export default function LoginPage() {
       if (shouldOpenDemo && !isPasswordRecovery) {
         setError(null);
         setLoading(true);
-        const { error: authError } = await supabase.auth.signInWithPassword({
-          email: DEMO_EMAIL,
-          password: DEMO_PASSWORD,
-        });
+        const authError = await signInToDemo();
         setLoading(false);
         if (authError) {
-          setError(authError.message);
+          setError(authError);
           return;
         }
         router.replace("/chat");
+        router.refresh();
       }
     })();
   }, [router]);
@@ -78,16 +87,14 @@ export default function LoginPage() {
     setError(null);
     setSuccess(null);
     setLoading(true);
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: DEMO_EMAIL,
-      password: DEMO_PASSWORD,
-    });
+    const authError = await signInToDemo();
     setLoading(false);
     if (authError) {
-      setError(authError.message);
+      setError(authError);
       return;
     }
     handleAuthSuccess();
+    router.refresh();
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -117,21 +124,6 @@ export default function LoginPage() {
       return;
     }
     handleAuthSuccess();
-  };
-
-  const handleGoogle = async () => {
-    setError(null);
-    setLoading(true);
-    const callbackUrl = new URL("/auth/callback", window.location.origin);
-    callbackUrl.searchParams.set("next", "/chat");
-    const { error: authError } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: callbackUrl.toString() },
-    });
-    if (authError) {
-      setLoading(false);
-      setError(authError.message);
-    }
   };
 
   const handlePasswordResetRequest = async (e: React.FormEvent) => {
@@ -299,7 +291,7 @@ export default function LoginPage() {
               <div className="relative flex items-center py-2">
                 <div className="flex-grow border-t border-outline-variant/40" />
                 <span className="flex-shrink-0 px-4 font-body-sm text-body-sm text-on-surface-variant">
-                  or continue with
+                  or
                 </span>
                 <div className="flex-grow border-t border-outline-variant/40" />
               </div>
@@ -311,20 +303,6 @@ export default function LoginPage() {
               >
                 <MaterialIcon name="movie_filter" size={20} />
                 Use demo account
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleGoogle()}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-sm border border-outline-variant bg-transparent text-on-surface font-title-md text-title-md py-3 rounded-lg hover:bg-surface-variant/40 active:bg-surface-variant/60 transition-all duration-200"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l2.48-1.92.12-.92z" fill="#FBBC05" />
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-                </svg>
-                Google
               </button>
               <p className="text-center font-body-sm text-body-sm text-on-surface-variant mt-sm">
                 New here?{" "}

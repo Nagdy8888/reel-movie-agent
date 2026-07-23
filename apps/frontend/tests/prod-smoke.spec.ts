@@ -1,8 +1,17 @@
 import { expect, test } from "@playwright/test";
 
-const FRONTEND = "https://reel-frontend-six.vercel.app";
-const EMAIL = "reel-smoke-test@example.com";
-const PASSWORD = "ReelTestPass123!";
+/** Read a production smoke-test setting from the caller's secret environment. */
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value?.trim()) {
+    throw new Error(`${name} must be configured to run production smoke tests.`);
+  }
+  return value;
+}
+
+const FRONTEND = requireEnv("PROD_SMOKE_FRONTEND_URL").replace(/\/+$/, "");
+const EMAIL = requireEnv("PROD_SMOKE_EMAIL");
+const PASSWORD = requireEnv("PROD_SMOKE_PASSWORD");
 
 test.describe.configure({ mode: "serial" });
 

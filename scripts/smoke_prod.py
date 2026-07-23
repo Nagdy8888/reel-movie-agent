@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -10,25 +11,36 @@ import httpx
 
 
 def _load_env() -> dict[str, str]:
-    """Parse key=value pairs from the repo root ``.env`` file."""
+    """Load local ``.env`` values, then let the process environment override them."""
     env: dict[str, str] = {}
-    for line in Path(".env").read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        env[key.strip()] = value.strip()
+    env_path = Path(".env")
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            env[key.strip()] = value.strip()
+    env.update(os.environ)
     return env
+
+
+def _require_env(env: dict[str, str], name: str) -> str:
+    """Return a required runtime setting without supplying credential defaults."""
+    value = env.get(name)
+    if not value:
+        raise RuntimeError(f"{name} must be configured to run the production smoke test.")
+    return value
 
 
 def main() -> None:
     """Verify production backend health and multi-turn chat artifact updates."""
     env = _load_env()
-    base = env["NEXT_PUBLIC_API_URL"].rstrip("/")
-    sb_url = env["SUPABASE_URL"]
-    sb_key = env["NEXT_PUBLIC_SUPABASE_ANON_KEY"]
-    email = "reel-smoke-test@example.com"
-    password = "ReelTestPass123!"
+    base = _require_env(env, "NEXT_PUBLIC_API_URL").rstrip("/")
+    sb_url = _require_env(env, "SUPABASE_URL")
+    sb_key = _require_env(env, "NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    email = _require_env(env, "PROD_SMOKE_EMAIL")
+    password = _require_env(env, "PROD_SMOKE_PASSWORD")
     results: list[dict[str, object]] = []
 
     def record(name: str, ok: bool, detail: str = "") -> None:
